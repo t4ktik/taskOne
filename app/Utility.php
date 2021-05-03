@@ -19,7 +19,7 @@ class Utility extends Model
         $data = DB::table('settings')->where('created_by', '=', 1)->get();
 
         $settings = [
-            "footer_text" => "© 2020 Rajodiya Infotech",
+            "footer_text" => "© 2020 Pablo Orozco",
             "footer_link_1" => "Support",
             "footer_value_1" => "#",
             "footer_link_2" => "Terms",
