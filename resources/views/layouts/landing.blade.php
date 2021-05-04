@@ -486,7 +486,7 @@
                     <a href="{{ url('home') }}">
                         <img src="{{ asset(Storage::url('logo/logo.png')) }}" id="navbar-logo" style="height: 25px;">
                     </a>
-                    <p class="mt-3">TaskGo is a task management tool with advanced features that would allow you to manage tasks of projects with utmost ease.</p>
+                    <p class="mt-3">TaskMan is a task management tool with advanced features that would allow you to manage tasks of projects with utmost ease.</p>
                 </div>
                 <div class="col-lg-2 col-6 col-sm-4 ml-lg-auto mb-5 mb-lg-0">
                     <h6 class="heading mb-3">Account</h6>
