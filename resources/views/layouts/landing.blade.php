@@ -469,7 +469,7 @@
                             </div>
                             <div class="icon-text">
                                 <h5 class="h4 text-white">6 months technical support</h5>
-                                <p class="mb-0 text-white">Use our dedicated support email to send your issues or suggestions. We are here to help anytime: <strong>support@taskOne.com</strong></p>
+                                <p class="mb-0 text-white">Use our dedicated support email to send your issues or suggestions. We are here to help anytime: <strong>support@taskone.com</strong></p>
                             </div>
                         </div>
                     </div>
@@ -502,7 +502,6 @@
                     <ul class="list-unstyled text-small">
                         <li><a href="#">Services</a></li>
                         <li><a href="#">Contact</a></li>
-                        <li><a href="#">Careers</a></li>
                     </ul>
                 </div>
                 <div class="col-lg-2 col-sm-4 mb-5 mb-lg-0">
