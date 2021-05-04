@@ -469,7 +469,7 @@
                             </div>
                             <div class="icon-text">
                                 <h5 class="h4 text-white">6 months technical support</h5>
-                                <p class="mb-0 text-white">Use our dedicated support email to send your issues or suggestions. We are here to help anytime: <strong>support@taskgo.com</strong></p>
+                                <p class="mb-0 text-white">Use our dedicated support email to send your issues or suggestions. We are here to help anytime: <strong>support@taskOne.com</strong></p>
                             </div>
                         </div>
                     </div>
