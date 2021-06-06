@@ -76,10 +76,6 @@
             <span class="btn-inner--icon d-block"><i class="fas fa-stopwatch fa-2x"></i></span>
             <span class="btn-inner--icon d-block pt-2">{{__('Timesheet')}}</span>
         </a>
-        <a href="{{ url('messages') }}" class="btn btn-square text-sm {{ request()->is('messages') ? 'active' : '' }}">
-            <span class="btn-inner--icon d-block"><i class="fas fa-comments fa-2x"></i></span>
-            <span class="btn-inner--icon d-block pt-2">{{__('Messages')}}</span>
-        </a>
     @endif
     @if(Auth::user()->type == 'admin')
         <a href="{{route('lang',basename(App::getLocale()))}}" class="btn btn-square text-sm {{ request()->is('lang*') ? 'active' : '' }}">
