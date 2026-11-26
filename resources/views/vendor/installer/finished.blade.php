@@ -11,8 +11,8 @@
 
 @section('container')
 
-    <p style="color:red;"><strong>Default Admin Created : admin@example.com / 1234</strong></p>
-    <p style="color:red;"><strong>Default Owner Created : owner@example.com / 1234</strong></p>
+    <p><strong>Initial accounts, when seeded, are admin@example.com and owner@example.com.</strong></p>
+    <p>Passwords come from SEED_ADMIN_PASSWORD and SEED_OWNER_PASSWORD, or from storage/app/seeded-credentials.txt when those variables are empty. Change both passwords immediately and delete that file. Do not use a shared default password.</p>
 
     @if(session('message')['dbOutputLog'])
         <p><strong><small>{{ trans('installer_messages.final.migration') }}</small></strong></p>

@@ -18,14 +18,11 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
-        'type',
         'avatar',
-        'created_by',
         'phone',
         'dob',
         'gender',
         'skills',
-        'is_active',
         'is_invited',
         'lang',
         'facebook',
@@ -261,14 +258,27 @@ class User extends Authenticatable
     // Get project wise permission
     public function getPermission($project_id)
     {
-        $data = ProjectUser::where('project_id', '=', $project_id)->where('user_id', '=', $this->id)->first();
+        $data = $this->projectMembership($project_id);
 
-        return json_decode($data->user_permission, true);
+        if(!$data)
+        {
+            return [];
+        }
+
+        if($data->permission === 'owner')
+        {
+            return $this->getAllPermission();
+        }
+
+        $permissions = json_decode($data->user_permission, true);
+
+        return is_array($permissions) ? $permissions : [];
     }
 
     // check project is shared or not
     public function checkProject($project_id)
     {
+        $projectstatus = '';
         $user_projects = $this->projects()->pluck('permission', 'project_id')->toArray();
         if(array_key_exists($project_id, $user_projects))
         {
@@ -276,6 +286,28 @@ class User extends Authenticatable
         }
 
         return $projectstatus;
+    }
+
+    public function projectMembership($project_id)
+    {
+        return ProjectUser::where('project_id', '=', $project_id)->where('user_id', '=', $this->id)->first();
+    }
+
+    public function isProjectMember($project_id)
+    {
+        return $this->projectMembership($project_id) !== null;
+    }
+
+    public function isProjectOwner($project_id)
+    {
+        $membership = $this->projectMembership($project_id);
+
+        return $membership && $membership->permission === 'owner';
+    }
+
+    public function hasProjectPermission($project_id, $permission)
+    {
+        return in_array($permission, $this->getPermission($project_id), true);
     }
 
     // for get user role

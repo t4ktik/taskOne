@@ -1,6 +1,5 @@
 <?php
 
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -13,7 +12,18 @@ use Illuminate\Support\Facades\Route;
 | contains the "web" middleware group. Now create something great!
 |
 */
-Auth::routes();
+
+// Auth::routes() requires laravel/ui on Laravel 7.30. These are the same
+// routes that package registers, kept here so login stays available.
+Route::get('login', 'Auth\LoginController@showLoginForm')->name('login');
+Route::post('login', 'Auth\LoginController@login');
+Route::post('logout', 'Auth\LoginController@logout')->name('logout');
+Route::get('register', 'Auth\RegisterController@showRegistrationForm')->name('register');
+Route::post('register', 'Auth\RegisterController@register');
+Route::get('password/reset', 'Auth\ForgotPasswordController@showLinkRequestForm')->name('password.request');
+Route::post('password/email', 'Auth\ForgotPasswordController@sendResetLinkEmail')->name('password.email');
+Route::get('password/reset/{token}', 'Auth\ResetPasswordController@showResetForm')->name('password.reset');
+Route::post('password/reset', 'Auth\ResetPasswordController@reset')->name('password.update');
 
 Route::get('/', ['uses' => 'HomeController@landingPage'])->middleware(['XSS']);
 Route::get('/home', ['as' => 'home','uses' => 'HomeController@index'])->middleware(['auth','XSS',]);
@@ -41,7 +51,7 @@ Route::delete('/lang/{id}',['as' => 'lang.destroy','uses' =>'UserController@dest
 // End Language Module
 
 // Search
-Route::get('/search',['as' => 'search.json','uses' =>'UserController@search']);
+Route::get('/search',['as' => 'search.json','uses' =>'UserController@search'])->middleware(['auth','XSS']);
 // end
 
 // Milestone Module
@@ -90,22 +100,22 @@ Route::delete('/projects/{id}/task/{tid}',['as' => 'projects.tasks.destroy','use
 Route::patch('/projects/{id}/task/order',['as' => 'tasks.update.order','uses' =>'ProjectTaskController@taskOrderUpdate'])->middleware(['auth','XSS']);
 Route::patch('update-task-priority-color', ['as' => 'update.task.priority.color','uses' => 'ProjectTaskController@updateTaskPriorityColor'])->middleware(['auth', 'XSS']);
 
-Route::post('/projects/{id}/comment/{tid}/file',['as' => 'comment.store.file','uses' =>'ProjectTaskController@commentStoreFile']);
-Route::delete('/projects/{id}/comment/{tid}/file/{fid}',['as' => 'comment.destroy.file','uses' =>'ProjectTaskController@commentDestroyFile']);
-Route::post('/projects/{id}/comment/{tid}',['as' => 'comment.store','uses' =>'ProjectTaskController@commentStore']);
-Route::delete('/projects/{id}/comment/{tid}/{cid}',['as' => 'comment.destroy','uses' =>'ProjectTaskController@commentDestroy']);
-Route::post('/projects/{id}/checklist/{tid}',['as' => 'checklist.store','uses' =>'ProjectTaskController@checklistStore']);
-Route::put('/projects/{id}/checklist/{cid}',['as' => 'checklist.update','uses' =>'ProjectTaskController@checklistUpdate']);
-Route::delete('/projects/{id}/checklist/{cid}',['as' => 'checklist.destroy','uses' =>'ProjectTaskController@checklistDestroy']);
-Route::post('/projects/{id}/change/{tid}/fav',['as' => 'change.fav','uses' =>'ProjectTaskController@changeFav']);
-Route::post('/projects/{id}/change/{tid}/complete',['as' => 'change.complete','uses' =>'ProjectTaskController@changeCom']);
-Route::post('/projects/{id}/change/{tid}/progress',['as' => 'change.progress','uses' =>'ProjectTaskController@changeProg']);
+Route::post('/projects/{id}/comment/{tid}/file',['as' => 'comment.store.file','uses' =>'ProjectTaskController@commentStoreFile'])->middleware(['auth','XSS']);
+Route::delete('/projects/{id}/comment/{tid}/file/{fid}',['as' => 'comment.destroy.file','uses' =>'ProjectTaskController@commentDestroyFile'])->middleware(['auth','XSS']);
+Route::post('/projects/{id}/comment/{tid}',['as' => 'comment.store','uses' =>'ProjectTaskController@commentStore'])->middleware(['auth','XSS']);
+Route::delete('/projects/{id}/comment/{tid}/{cid}',['as' => 'comment.destroy','uses' =>'ProjectTaskController@commentDestroy'])->middleware(['auth','XSS']);
+Route::post('/projects/{id}/checklist/{tid}',['as' => 'checklist.store','uses' =>'ProjectTaskController@checklistStore'])->middleware(['auth','XSS']);
+Route::put('/projects/{id}/checklist/{cid}',['as' => 'checklist.update','uses' =>'ProjectTaskController@checklistUpdate'])->middleware(['auth','XSS']);
+Route::delete('/projects/{id}/checklist/{cid}',['as' => 'checklist.destroy','uses' =>'ProjectTaskController@checklistDestroy'])->middleware(['auth','XSS']);
+Route::post('/projects/{id}/change/{tid}/fav',['as' => 'change.fav','uses' =>'ProjectTaskController@changeFav'])->middleware(['auth','XSS']);
+Route::post('/projects/{id}/change/{tid}/complete',['as' => 'change.complete','uses' =>'ProjectTaskController@changeCom'])->middleware(['auth','XSS']);
+Route::post('/projects/{id}/change/{tid}/progress',['as' => 'change.progress','uses' =>'ProjectTaskController@changeProg'])->middleware(['auth','XSS']);
 Route::get('/projects/task/{id}/get',['as' => 'projects.tasks.get','uses' =>'ProjectTaskController@taskGet'])->middleware(['auth','XSS']);
 
 Route::get('taskboard/{view?}',['as' => 'taskBoard.view','uses' => 'ProjectTaskController@taskBoard'])->middleware(['auth', 'XSS']);
 Route::get('taskboard-view',['as' => 'project.taskboard.view','uses' => 'ProjectTaskController@taskboardView'])->middleware(['auth', 'XSS']);
 Route::get('/calendar/{id}/show',['as' => 'task.calendar.show','uses' =>'ProjectTaskController@calendarShow'])->middleware(['auth','XSS']);
-Route::put('/calendar/{id}/drag',['as' => 'task.calendar.drag','uses' =>'ProjectTaskController@calendarDrag']);
+Route::put('/calendar/{id}/drag',['as' => 'task.calendar.drag','uses' =>'ProjectTaskController@calendarDrag'])->middleware(['auth','XSS']);
 Route::get('calendar/{task}/{pid?}',['as' => 'task.calendar','uses' => 'ProjectTaskController@calendarView'])->middleware(['auth', 'XSS']);
 
 // End Task Module
@@ -137,7 +147,7 @@ Route::delete('/project/timesheet/{timesheet_id}',['as' => 'timesheet.destroy','
 Route::post('/todo/create',['as' => 'todo.store','uses' =>'UserController@todo_store'])->middleware(['auth','XSS']);
 Route::put('/todo/{id}/update',['as' => 'todo.update','uses' =>'UserController@todo_update'])->middleware(['auth','XSS']);
 Route::delete('/todo/{id}',['as' => 'todo.destroy','uses' =>'UserController@todo_destroy'])->middleware(['auth','XSS']);
-Route::get('/change/mode',['as' => 'change.mode','uses' =>'UserController@changeMode']);
+Route::get('/change/mode',['as' => 'change.mode','uses' =>'UserController@changeMode'])->middleware(['auth','XSS']);
 
 
 // Site Setting
@@ -145,8 +155,8 @@ Route::get('/settings',['as' => 'settings','uses' =>'SettingsController@index'])
 Route::post('/settings',['as' => 'settings.store','uses' =>'SettingsController@store'])->middleware(['auth','XSS']);
 
 // Send Test Email
-Route::post('/test',['as' => 'test.email','uses' =>'SettingsController@testEmail'])->middleware(['auth','XSS']);
-Route::post('/test/send',['as' => 'test.email.send','uses' =>'SettingsController@testEmailSend'])->middleware(['auth','XSS']);
+Route::post('/test',['as' => 'test.email','uses' =>'SettingsController@testEmail'])->middleware(['auth','XSS','throttle:5,1']);
+Route::post('/test/send',['as' => 'test.email.send','uses' =>'SettingsController@testEmailSend'])->middleware(['auth','XSS','throttle:5,1']);
 
 // Email Templates
 Route::get('email_template_lang/{id}/{lang?}', 'EmailTemplateController@manageEmailLang')->name('manage.email.language')->middleware(['auth']);
@@ -181,9 +191,9 @@ Route::get('/{id}//get-payment-status',['as' => 'client.get.payment.status','use
 // end invoice module
 
 // Invoice Mail Send
-Route::get('invoices/{id}/get_invoice', 'InvoiceController@printInvoice')->name('get.invoice')->middleware(['XSS']);
-Route::get('invoice/{id}/payment/reminder', 'InvoiceController@paymentReminder')->name('invoice.payment.reminder');
-Route::get('invoice/{id}/sent', 'InvoiceController@sent')->name('invoice.sent');
+Route::get('invoices/{id}/get_invoice', 'InvoiceController@printInvoice')->name('get.invoice')->middleware(['auth','XSS']);
+Route::get('invoice/{id}/payment/reminder', 'InvoiceController@paymentReminder')->name('invoice.payment.reminder')->middleware(['auth','XSS','throttle:5,1']);
+Route::get('invoice/{id}/sent', 'InvoiceController@sent')->name('invoice.sent')->middleware(['auth','XSS']);
 
 // Client Side Invoice Mail Send
 Route::get('invoice/{id}/custom-send', 'InvoiceController@customMail')->name('invoice.custom.send')->middleware(['auth','XSS']);
@@ -193,7 +203,7 @@ Route::post('invoice/{id}/custom-mail', 'InvoiceController@customMailSend')->nam
 // Invoice Template
 Route::get('template/invoice',['as'=>'invoice.template.setting','uses'=>'InvoiceController@templateSetting'])->middleware(['auth','XSS']);
 Route::post('/invoice-setting',['as' => 'invoice.template.store','uses' =>'InvoiceController@saveTemplateSettings'])->middleware(['auth','XSS']);
-Route::get('/invoices/preview/{template}/{color}',['as' => 'invoice.preview','uses' =>'InvoiceController@previewInvoice']);
+Route::get('/invoices/preview/{template}/{color}',['as' => 'invoice.preview','uses' =>'InvoiceController@previewInvoice'])->middleware(['auth','XSS']);
 
 
 // Tax Module

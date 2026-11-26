@@ -346,7 +346,7 @@ class SettingsController extends Controller
                 return response()->json(
                     [
                         'is_success' => false,
-                        'message' => $e->getMessage(),
+                        'message' => __('E-Mail has been not sent due to SMTP configuration'),
                     ]
                 );
                 //            return redirect()->back()->with('error', 'Something is Wrong.');

@@ -86,6 +86,13 @@ class Utility extends Model
     }
 
     // Save Settings on .env file
+    public static function escapeEnvironmentValue($value)
+    {
+        $value = str_replace(["\r", "\n", "\0"], '', (string) $value);
+
+        return str_replace(['\\', '"'], ['\\\\', '\\"'], $value);
+    }
+
     public static function setEnvironmentValue(array $values)
     {
         $envFile = app()->environmentFilePath();
@@ -95,18 +102,25 @@ class Utility extends Model
         {
             foreach($values as $envKey => $envValue)
             {
+                $envKey = preg_replace('/[^A-Z0-9_]/', '', (string) $envKey);
+                if($envKey === '')
+                {
+                    continue;
+                }
+
+                $envValue          = self::escapeEnvironmentValue($envValue);
                 $keyPosition       = strpos($str, "{$envKey}=");
-                $endOfLinePosition = strpos($str, "\n", $keyPosition);
-                $oldLine           = substr($str, $keyPosition, $endOfLinePosition - $keyPosition);
+                $endOfLinePosition = $keyPosition === false ? false : strpos($str, "\n", $keyPosition);
+                $oldLine           = ($keyPosition === false || $endOfLinePosition === false) ? '' : substr($str, $keyPosition, $endOfLinePosition - $keyPosition);
 
                 // If key does not exist, add it
-                if(!$keyPosition || !$endOfLinePosition || !$oldLine)
+                if($keyPosition === false || $endOfLinePosition === false || !$oldLine)
                 {
-                    $str .= "{$envKey}='{$envValue}'\n";
+                    $str .= "{$envKey}=\"{$envValue}\"\n";
                 }
                 else
                 {
-                    $str = str_replace($oldLine, "{$envKey}='{$envValue}'", $str);
+                    $str = str_replace($oldLine, "{$envKey}=\"{$envValue}\"", $str);
                 }
             }
         }
@@ -408,11 +422,12 @@ class Utility extends Model
 
         foreach($obj as $key => $val)
         {
-            $arrValue[$key] = $val;
+            $arrValue[$key] = e($val);
         }
 
-        $arrValue['app_name'] = env('APP_NAME');
-        $arrValue['app_url']  = '<a href="' . env('APP_URL') . '" target="_blank">' . env('APP_URL') . '</a>';
+        $appUrl               = e(env('APP_URL'));
+        $arrValue['app_name'] = e(env('APP_NAME'));
+        $arrValue['app_url']  = '<a href="' . $appUrl . '" target="_blank">' . $appUrl . '</a>';
 
         return str_replace($arrVariable, array_values($arrValue), $content);
     }

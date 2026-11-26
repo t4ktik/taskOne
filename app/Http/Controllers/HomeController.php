@@ -6,8 +6,11 @@ use App\Expense;
 use App\Project;
 use App\ProjectTask;
 use App\Timesheet;
+use App\Support\RequestGuard;
+use App\Support\SafeQuery;
 use App\User;
 use App\Utility;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Stripe;
@@ -27,8 +30,7 @@ class HomeController extends Controller
     {
         if(!file_exists(storage_path() . "/installed"))
         {
-            header('location:install');
-            die;
+            throw new HttpResponseException(redirect('install'));
         }
 
         if(Utility::getValByName('enable_landing') == 'on')
@@ -157,14 +159,24 @@ class HomeController extends Controller
     // Load Dashboard user's using ajax
     public function filterView(Request $request)
     {
-        $usr   = Auth::user();
+        $usr = Auth::user();
+        if($usr->type != 'admin')
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
         $users = User::where('id', '!=', $usr->id);
 
         if($request->ajax())
         {
             if(!empty($request->keyword))
             {
-                $users->where('name', 'LIKE', $request->keyword . '%')->orWhereRaw('FIND_IN_SET("' . $request->keyword . '",skills)');
+                $keyword = $request->keyword;
+                $like    = '%' . RequestGuard::likePrefix($keyword) . '%';
+                $users->where(function ($query) use ($keyword, $like){
+                    $query->where('name', 'LIKE', $like);
+                    SafeQuery::orFindInSet($query, 'skills', $keyword);
+                });
             }
 
             $users      = $users->get();
