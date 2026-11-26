@@ -2,13 +2,13 @@
 
 namespace App\Http\Middleware;
 
-use App\Utility;
 use Closure;
 use Illuminate\Support\Facades\Artisan;
+use Wikigods\LaravelInstaller\Helpers\MigrationsHelper;
 
 class XSS
 {
-    use \RachidLaasri\LaravelInstaller\Helpers\MigrationsHelper;
+    use MigrationsHelper;
 
     /**
      * Handle an incoming request.
@@ -26,10 +26,7 @@ class XSS
 
             if(\Auth::user()->type == 'admin')
             {
-                $migrations             = $this->getMigrations();
-                $messengerMigration     = Utility::get_messenger_packages_migration();
-                $dbMigrations           = $this->getExecutedMigrations();
-                $numberOfUpdatesPending = (count($migrations) + $messengerMigration) - count($dbMigrations);
+                $numberOfUpdatesPending = count($this->getPendingMigrations());
 
                 if($numberOfUpdatesPending > 0)
                 {

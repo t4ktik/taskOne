@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Providers\RouteServiceProvider;
 use App\User;
 use Illuminate\Foundation\Auth\RegistersUsers;
-use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 
@@ -39,10 +38,7 @@ class RegisterController extends Controller
      */
     public function __construct()
     {
-        if(!file_exists(storage_path() . "/installed"))
-        {
-            throw new HttpResponseException(redirect('install'));
-        }
+        $this->middleware('installed');
         $this->middleware('guest');
         $this->middleware('throttle:5,1')->only('register');
     }

@@ -15,7 +15,7 @@ function getPhpVersionInfo()
     ];
 }
 
-$minPhpVersion                                 = '7.2';
+$minPhpVersion                                 = '8.3';
 $arrPermissions                                = [];
 $arrPermissions['storage/framework/']          = __DIR__ . "/storage/framework/";
 $arrPermissions['storage/framework/cache/']    = __DIR__ . "/storage/framework/cache/";

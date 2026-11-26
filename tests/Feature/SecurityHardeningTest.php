@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Invoice;
+use App\InvoiceProduct;
 use App\Project;
 use App\ProjectTask;
 use App\ProjectUser;
@@ -12,7 +13,9 @@ use App\UserContact;
 use App\UserToDo;
 use App\Utility;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class SecurityHardeningTest extends TestCase
@@ -186,6 +189,27 @@ class SecurityHardeningTest extends TestCase
 
         try
         {
+            DB::table('messages')->insert([
+                'id' => 9001,
+                'type' => 'user',
+                'from_id' => $user->id,
+                'to_id' => $user->id,
+                'body' => 'file',
+                'attachment' => 'note.txt,note.txt',
+                'seen' => 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $stranger = $this->makeUser('owner');
+
+            $this->get('/messages/download/note.txt')->assertRedirect(route('login'));
+
+            $this->actingAs($stranger)
+                ->get('/messages/download/note.txt')
+                ->assertStatus(404)
+                ->assertDontSee('inside-attachment');
+
             $this->actingAs($user)
                 ->get('/messages/download/' . rawurlencode('../secret-outside.txt'))
                 ->assertStatus(404)
@@ -204,6 +228,76 @@ class SecurityHardeningTest extends TestCase
             @unlink($folder . '/note.txt');
             @unlink($outside);
         }
+    }
+
+    public function test_invoice_client_is_sent_to_paypal_and_a_stranger_is_not()
+    {
+        Http::fake([
+            'api-m.sandbox.paypal.com/v1/oauth2/token' => Http::response(['access_token' => 'token-1'], 200),
+            'api-m.sandbox.paypal.com/v1/payments/payment' => Http::response([
+                'id' => 'PAY-1',
+                'links' => [
+                    ['rel' => 'approval_url', 'href' => 'https://www.sandbox.paypal.com/cgi-bin/webscr?cmd=_express-checkout&token=EC-1'],
+                ],
+            ], 201),
+            'api-m.sandbox.paypal.com/v1/payments/payment/PAY-1/execute' => Http::response([
+                'state' => 'approved',
+                'transactions' => [[
+                    'amount' => ['total' => '25.00', 'currency' => 'USD'],
+                    'description' => 'note',
+                ]],
+            ], 200),
+        ]);
+
+        $owner = $this->makeUser('owner');
+        $owner->details = json_encode([
+            'enable_paypal' => 'on',
+            'paypal_mode' => 'sandbox',
+            'paypal_client_id' => 'client-id',
+            'paypal_secret_key' => 'client-secret',
+        ]);
+        $owner->save();
+
+        $client = $this->makeUser('client');
+        $stranger = $this->makeUser('client');
+        $project = $this->makeProject($owner);
+        $project->currency_code = 'USD';
+        $project->save();
+
+        $invoice = Invoice::create([
+            'invoice_id' => 7,
+            'project_id' => $project->id,
+            'client_id' => $client->id,
+            'due_date' => '2026-01-01',
+            'tax_id' => 1,
+            'created_by' => $owner->id,
+        ]);
+        InvoiceProduct::create([
+            'invoice_id' => $invoice->id,
+            'item' => 'Work',
+            'price' => 25,
+            'type' => 'item',
+        ]);
+
+        $this->actingAs($stranger)
+            ->post(route('client.pay.with.paypal', $invoice->id), ['amount' => 25])
+            ->assertRedirect();
+
+        $this->assertDatabaseMissing('invoice_payments', ['invoice_id' => $invoice->id]);
+
+        $this->actingAs($client)
+            ->post(route('client.pay.with.paypal', $invoice->id), ['amount' => 25, 'notes' => 'note'])
+            ->assertRedirect('https://www.sandbox.paypal.com/cgi-bin/webscr?cmd=_express-checkout&token=EC-1');
+
+        $this->actingAs($client)
+            ->get(route('client.get.payment.status', $invoice->id) . '?PayerID=PAYER&token=EC-1')
+            ->assertRedirect(route('invoices.show', $invoice->id));
+
+        $this->assertDatabaseHas('invoice_payments', [
+            'invoice_id' => $invoice->id,
+            'client_id' => $client->id,
+            'amount' => 25,
+        ]);
     }
 
     public function test_sort_and_view_inputs_are_whitelisted()
