@@ -101,4 +101,10 @@ return [
 
     'prefix' => env('CACHE_PREFIX', Str::slug(env('APP_NAME', 'laravel'), '_').'_cache'),
 
+    /*
+    | Laravel 13 refuses to unserialize arbitrary objects from the cache.
+    | List classes here only if this app starts storing objects in cache.
+    */
+    'serializable_classes' => false,
+
 ];

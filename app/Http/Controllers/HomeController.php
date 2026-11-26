@@ -14,10 +14,11 @@ use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Stripe;
+use Wikigods\LaravelInstaller\Helpers\MigrationsHelper;
 
 class HomeController extends Controller
 {
-    use \RachidLaasri\LaravelInstaller\Helpers\MigrationsHelper;
+    use MigrationsHelper;
 
     /**
      * Create a new controller instance.

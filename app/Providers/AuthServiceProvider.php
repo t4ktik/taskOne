@@ -25,6 +25,8 @@ class AuthServiceProvider extends ServiceProvider
     {
         $this->registerPolicies();
 
-        //
+        Gate::define('p_admin.installer-updates.index', function ($user){
+            return isset($user->type) && $user->type === 'admin';
+        });
     }
 }

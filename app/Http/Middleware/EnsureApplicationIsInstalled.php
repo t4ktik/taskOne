@@ -1,0 +1,18 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+
+class EnsureApplicationIsInstalled
+{
+    public function handle($request, Closure $next)
+    {
+        if(!file_exists(storage_path('installed')))
+        {
+            return redirect('install');
+        }
+
+        return $next($request);
+    }
+}

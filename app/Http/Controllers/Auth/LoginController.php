@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Providers\RouteServiceProvider;
 use Illuminate\Foundation\Auth\AuthenticatesUsers;
-use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 
 class LoginController extends Controller
@@ -37,10 +36,7 @@ class LoginController extends Controller
      */
     public function __construct()
     {
-        if(!file_exists(storage_path() . "/installed"))
-        {
-            throw new HttpResponseException(redirect('install'));
-        }
+        $this->middleware('installed');
         $this->middleware('guest')->except('logout');
     }
 

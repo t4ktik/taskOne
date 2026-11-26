@@ -175,7 +175,7 @@ return [
         App\Providers\EventServiceProvider::class,
         App\Providers\RouteServiceProvider::class,
         Collective\Html\HtmlServiceProvider::class,
-        RachidLaasri\LaravelInstaller\Providers\LaravelInstallerServiceProvider::class,
+        Wikigods\LaravelInstaller\Providers\LaravelInstallerServiceProvider::class,
         \Chatify\ChatifyServiceProvider::class
     ],
 

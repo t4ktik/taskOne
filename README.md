@@ -30,14 +30,14 @@ La API solo expone `GET /api/user`, protegida con `auth:api`. El resto de la apl
 
 | Capa | Tecnología |
 | --- | --- |
-| Lenguaje | PHP `^7.2.5` (declarado en `composer.json`; la comprobación de `verification.php` exige PHP 7.2 o superior) |
-| Framework | Laravel 7 (`laravel/framework` 7.30.6 en `composer.lock`) |
+| Lenguaje | PHP `^8.3` (declarado en `composer.json`; `verification.php` y el instalador exigen PHP 8.3 o superior) |
+| Framework | Laravel 13 (`laravel/framework` 13.x en `composer.lock`) |
 | Base de datos | MySQL. `.env.example` usa el puerto `3306`. El asistente de instalación solo configura MySQL. Las pruebas de PHPUnit usan SQLite en memoria. |
-| Frontend | Blade, Bootstrap 4, jQuery, Sass y Laravel Mix 5 (`webpack.mix.js` compila `resources/js/app.js` y `resources/sass/app.scss`) |
-| HTTP | Guzzle |
-| Pagos | `stripe/stripe-php` y `paypal/rest-api-sdk-php` |
-| Mensajes | `munafio/chatify` |
-| Instalador | `rachidlaasri/laravel-installer` |
+| Frontend | Blade, Bootstrap 4, jQuery, Sass y Vite (`vite.config.js` compila `resources/js/app.js` y `resources/sass/app.scss` hacia `public/js/app.js` y `public/css/app.css`) |
+| HTTP | Guzzle 7 |
+| Pagos | `stripe/stripe-php` y la API REST de PayPal (`App\Services\PayPalCheckout`) |
+| Mensajes | `munafio/chatify` 1.0, vendido en `packages/chatify` |
+| Instalador | `wikigods/laravel-installer` |
 | Correo y formularios | Laravel Mail y `laravelcollective/html` |
 | Pruebas | PHPUnit 8 |
 
@@ -49,10 +49,10 @@ bootstrap/           Arranque de Laravel
 config/              Configuración (app, base de datos, PayPal, Chatify, correo…)
 database/
   migrations/        Esquema
-  seeds/             Usuarios de demostración
+  seeders/           Usuarios de demostración
 public/              Assets compilados, landing, instalador y front controller de Laravel
 resources/
-  js/  sass/         Código que compila Laravel Mix
+  js/  sass/         Código que compila Vite
   lang/              Cadenas en inglés y español
   views/             Plantillas Blade
 routes/
@@ -62,7 +62,7 @@ routes/
 tests/               Tests Unit y Feature de ejemplo
 index.php            Front controller para el servidor embebido de PHP y Apache
 verification.php     Comprueba PHP y permisos antes de la instalación
-webpack.mix.js       Entradas de Mix
+vite.config.js       Entradas de Vite
 artisan              CLI de Laravel
 ```
 
@@ -70,7 +70,7 @@ El documento raíz del sitio es el directorio del repositorio (donde están `ind
 
 ## Requisitos
 
-- PHP 7.2.5 o superior, dentro de la rama 7.x (`^7.2.5`).
+- PHP 8.3 o superior (`^8.3`). Laravel 13 no arranca en PHP 8.2 ni anteriores.
 - Extensiones que comprueba el instalador: `openssl`, `pdo`, `mbstring`, `tokenizer`, `json` y `curl`. Hace falta también el driver PDO de MySQL.
 - Composer.
 - MySQL.
@@ -107,7 +107,7 @@ npm run dev
 
 `php artisan storage:link` enlaza `public/storage` con `storage/app/public`. El logo y los archivos subidos se sirven por esa ruta.
 
-El seeder `database/seeds/UsersTableSeeder.php` crea dos usuarios locales, ambos con la contraseña `1234`:
+El seeder `database/seeders/UsersTableSeeder.php` crea dos usuarios locales. Las contraseñas salen de `SEED_ADMIN_PASSWORD` y `SEED_OWNER_PASSWORD`; si no están definidas, el seeder genera una contraseña aleatoria y la escribe en `storage/app/seeded-credentials.txt`.
 
 | Correo | Tipo |
 | --- | --- |
@@ -186,8 +186,8 @@ Pusher alimenta el broadcasting y el chat. Sin estas claves el resto de la aplic
 | `PUSHER_APP_KEY` | Clave pública de Pusher. |
 | `PUSHER_APP_SECRET` | Secreto de Pusher. |
 | `PUSHER_APP_CLUSTER` | Cluster de Pusher. |
-| `MIX_PUSHER_APP_KEY` | La misma clave, expuesta al bundle de Mix. |
-| `MIX_PUSHER_APP_CLUSTER` | El mismo cluster, expuesto al bundle de Mix. |
+| `MIX_PUSHER_APP_KEY` | Ya no la lee el bundle. El chat toma `PUSHER_APP_KEY` desde la configuración de Laravel. |
+| `MIX_PUSHER_APP_CLUSTER` | Ya no la lee el bundle. El chat toma `PUSHER_APP_CLUSTER` desde la configuración de Laravel. |
 | `CHATIFY_NAME` | Título del módulo de mensajes. Por defecto, `Messages`. |
 | `CHATIFY_PATH` | Ruta del chat. Por defecto, `messages`. |
 | `CHATIFY_MIDDLEWARE` | Middleware de esas rutas. Por defecto, `XSS`. |
@@ -223,7 +223,7 @@ Mientras cambias JavaScript o Sass:
 npm run watch
 ```
 
-`npm run hot` levanta el servidor de recarga de Mix. El puerto lo elige webpack-dev-server; no está fijado en este repositorio.
+Vite escribe `public/js/app.js` y `public/css/app.css`, que son las rutas que ya usan las plantillas. No hay servidor de recarga en caliente: las vistas no llaman a `@vite`.
 
 ## Producción
 
@@ -262,7 +262,7 @@ Para una sola suite:
 ./vendor/bin/phpunit --testsuite Feature
 ```
 
-`tests/Feature/ExampleTest.php` pide `GET /` y espera HTTP 200. `tests/Unit/ExampleTest.php` es un assert de ejemplo. No hay un script `test` en `composer.json` ni en `package.json`.
+`tests/Feature/ExampleTest.php` pide `GET /` sin `storage/installed` y espera la redirección a `/install`. `tests/Unit/ExampleTest.php` es un assert de ejemplo. No hay un script `test` en `composer.json` ni en `package.json`. PHPUnit 12 se ejecuta con `php artisan test` o `vendor/bin/phpunit`.
 
 ## Scripts
 
@@ -270,13 +270,12 @@ Para una sola suite:
 
 | Script | Qué hace |
 | --- | --- |
-| `npm run dev` | Alias de `npm run development`. |
-| `npm run development` | Compila JS y Sass en modo desarrollo hacia `public/js` y `public/css`. |
+| `npm run dev` | Compila JS y Sass hacia `public/js/app.js` y `public/css/app.css`. |
+| `npm run development` | Igual que `npm run dev`. |
 | `npm run watch` | Recompila al cambiar los archivos de entrada. |
-| `npm run watch-poll` | Igual que `watch`, haciendo polling del disco. |
-| `npm run hot` | webpack-dev-server con recarga en caliente. |
+| `npm run build` | Compila los assets para producción. |
 | `npm run prod` | Alias de `npm run production`. |
-| `npm run production` | Compila y minifica los assets para producción. |
+| `npm run production` | Igual que `npm run build`. |
 
 ### Composer
 
