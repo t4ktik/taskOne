@@ -9,6 +9,8 @@ use App\Project;
 use App\ProjectEmailTemplate;
 use App\ProjectTask;
 use App\ProjectUser;
+use App\Support\RequestGuard;
+use App\Support\SafeQuery;
 use App\TaskStage;
 use App\User;
 use App\UserContact;
@@ -441,6 +443,11 @@ class ProjectController extends Controller
      */
     public function destroy(Project $project)
     {
+        if(!Auth::user()->isProjectOwner($project->id))
+        {
+            return redirect()->route('projects.index')->with('error', __('Permission Denied.'));
+        }
+
         Project::deleteProject($project->id);
 
         return redirect()->route('projects.index')->with('success', __('Project deleted successfully.'));
@@ -454,19 +461,26 @@ class ProjectController extends Controller
 
         if($request->ajax() && $request->has('view') && $request->has('sort'))
         {
-            $sort     = explode('-', $request->sort);
-            $projects = Project::whereIn('id', array_keys($user_projects))->orderBy($sort[0], $sort[1]);
+            list($sortColumn, $sortDirection) = RequestGuard::sort($request->sort, ['created_at', 'name']);
+            $projects = Project::whereIn('id', array_keys($user_projects))->orderBy($sortColumn, $sortDirection);
 
             if(!empty($request->keyword))
             {
-                $projects->where('name', 'LIKE', $request->keyword . '%')->orWhereRaw('FIND_IN_SET("' . $request->keyword . '",tags)');
+                $keyword = $request->keyword;
+                $like    = '%' . RequestGuard::likePrefix($keyword) . '%';
+                $projects->where(function ($query) use ($keyword, $like){
+                    $query->where('name', 'LIKE', $like);
+                    SafeQuery::orFindInSet($query, 'tags', $keyword);
+                });
             }
+
+            $view = RequestGuard::allowedView($request->view, ['grid', 'list'], 'grid');
             if(!empty($request->status))
             {
                 $projects->whereIn('status', $request->status);
             }
             $projects   = $projects->get();
-            $returnHTML = view('projects.' . $request->view, compact('projects', 'user_projects'))->render();
+            $returnHTML = view('projects.' . $view, compact('projects', 'user_projects'))->render();
 
             return response()->json(
                 [
@@ -482,7 +496,12 @@ class ProjectController extends Controller
     {
         if($request->ajax())
         {
-            $project    = Project::find($request->project_id);
+            $project = Project::find($request->project_id);
+            if(!$project || !Auth::user()->isProjectMember($project->id))
+            {
+                return response()->json(['error' => __('Permission Denied.')], 403);
+            }
+
             $returnHTML = view('projects.users', compact('project'))->render();
 
             return response()->json(
@@ -497,8 +516,13 @@ class ProjectController extends Controller
     // For Invite Member
     public function inviteMemberView(Request $request, $project_id)
     {
-        $usr          = Auth::user();
-        $project      = Project::find($project_id);
+        $usr     = Auth::user();
+        $project = Project::find($project_id);
+        if(!$project || !$usr->isProjectOwner($project->id))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         $user_project = $project->users->pluck('id')->toArray();
 
         $user_contact = UserContact::where('parent_id', '=', $usr->id)->where('role', 'user')->whereNOTIn('user_id', $user_project)->pluck('user_id')->toArray();
@@ -517,12 +541,23 @@ class ProjectController extends Controller
         $authuser = Auth::user();
         $role     = $request->role;
 
+        if(!$authuser->isProjectOwner($request->project_id) || !in_array($role, ['user', 'client'], true))
+        {
+            return json_encode(
+                [
+                    'code' => 403,
+                    'status' => 'Error',
+                    'error' => __('Permission Denied.'),
+                ]
+            );
+        }
+
         // check validation
         $validator = Validator::make(
             $request->all(), [
                                'username' => 'required',
                                'useremail' => 'required|email|unique:users,email',
-                               'userpassword' => 'required',
+                               'userpassword' => 'required|min:8',
                            ]
         );
         if($validator->fails())
@@ -549,13 +584,14 @@ class ProjectController extends Controller
                 'name' => $name,
                 'email' => $email,
                 'password' => Hash::make($password),
-                'type' => 'user',
-                'created_by' => $authuser->id,
                 'lang' => 'en',
-                'is_active' => 1,
                 'is_invited' => 1,
             ]
         );
+        $user->type       = 'user';
+        $user->created_by = $authuser->id;
+        $user->is_active  = 1;
+        $user->save();
 
         // make entry in user_contact tbl
         UserContact::create(
@@ -675,6 +711,10 @@ class ProjectController extends Controller
     public function milestoneEdit($id)
     {
         $milestone = Milestone::find($id);
+        if(!$milestone || !Auth::user()->hasProjectPermission($milestone->project_id, 'edit milestone'))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
 
         return view('projects.milestoneEdit', compact('milestone'));
     }
@@ -688,7 +728,12 @@ class ProjectController extends Controller
             ]
         );
 
-        $milestone              = Milestone::find($id);
+        $milestone = Milestone::find($id);
+        if(!$milestone || !Auth::user()->hasProjectPermission($milestone->project_id, 'edit milestone'))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         $milestone->title       = $request->title;
         $milestone->status      = $request->status;
         $milestone->description = $request->description;
@@ -700,6 +745,11 @@ class ProjectController extends Controller
     public function milestoneDestroy($id)
     {
         $milestone = Milestone::find($id);
+        if(!$milestone || !Auth::user()->hasProjectPermission($milestone->project_id, 'delete milestone'))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         $milestone->delete();
 
         return redirect()->back()->with('success', __('Milestone successfully deleted.'));
@@ -708,6 +758,10 @@ class ProjectController extends Controller
     public function milestoneShow($id)
     {
         $milestone = Milestone::find($id);
+        if(!$milestone || !Auth::user()->isProjectMember($milestone->project_id))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
 
         return view('projects.milestoneShow', compact('milestone'));
     }
@@ -717,8 +771,9 @@ class ProjectController extends Controller
     {
         $project = Project::find($project_id);
         $user    = User::find($user_id);
+        $membership = ($project && $user) ? ProjectUser::where('project_id', '=', $project->id)->where('user_id', '=', $user->id)->first() : null;
 
-        if($project && $user)
+        if($project && $user && $membership && Auth::user()->isProjectOwner($project->id) && $membership->permission !== 'owner')
         {
             // Remove from project_user tbl
             $project->users()->detach($user->id);
@@ -735,6 +790,11 @@ class ProjectController extends Controller
     // Move Task Stage
     public function storeProjectTaskStages(Request $request, $project_id)
     {
+        if(!Auth::user()->hasProjectPermission($project_id, 'project setting'))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         $rules = [
             'stages' => 'required|present|array',
         ];
@@ -767,7 +827,11 @@ class ProjectController extends Controller
             $obj = new TaskStage();
             if(isset($stage['id']) && !empty($stage['id']))
             {
-                $obj = TaskStage::find($stage['id']);
+                $obj = TaskStage::where('id', '=', $stage['id'])->where('project_id', '=', $project_id)->first();
+                if(!$obj)
+                {
+                    return redirect()->back()->with('error', __('Permission Denied.'));
+                }
                 unset($arrStages[$obj->id]);
             }
             $obj->project_id = $project_id;
@@ -798,8 +862,13 @@ class ProjectController extends Controller
     // User Permission Module
     public function userPermission($project_id, $user_id)
     {
-        $project     = Project::find($project_id);
-        $user        = User::find($user_id);
+        $project = Project::find($project_id);
+        $user    = User::find($user_id);
+        if(!$project || !$user || !Auth::user()->isProjectOwner($project_id) || !$user->isProjectMember($project_id))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         $permissions = $user->getPermission($project_id);
 
         if(!$permissions)
@@ -812,8 +881,20 @@ class ProjectController extends Controller
 
     public function userPermissionStore($project_id, $user_id, Request $request)
     {
-        $userProject                  = ProjectUser::where('project_id', '=', $project_id)->where('user_id', '=', $user_id)->first();
-        $userProject->user_permission = json_encode($request->permissions);
+        if(!Auth::user()->isProjectOwner($project_id))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
+        $userProject = ProjectUser::where('project_id', '=', $project_id)->where('user_id', '=', $user_id)->first();
+        if(!$userProject || $userProject->permission === 'owner')
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
+        $requested = array_map('strval', (array) $request->permissions);
+        $clean     = array_values(array_intersect(Auth::user()->getAllPermission(), $requested));
+        $userProject->user_permission = json_encode($clean);
         $userProject->save();
 
         return redirect()->back()->with('success', __('Permission Updated Successfully!'));
@@ -825,6 +906,11 @@ class ProjectController extends Controller
     {
         $project = Project::find($projectID);
         $tasks   = [];
+
+        if(!$project || !Auth::user()->isProjectMember($project->id))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
 
         if($project)
         {
@@ -861,8 +947,17 @@ class ProjectController extends Controller
 
             if(isset($permissions) && in_array('show task', $permissions))
             {
-                $id               = trim($request->task_id, 'task_');
-                $task             = ProjectTask::find($id);
+                $id   = trim($request->task_id, 'task_');
+                $task = ProjectTask::where('id', '=', $id)->where('project_id', '=', $project->id)->first();
+                if(!$task)
+                {
+                    return response()->json(
+                        [
+                            'is_success' => false,
+                            'message' => __("You can't change Date!"),
+                        ], 400
+                    );
+                }
                 $task->start_date = $request->start;
                 $task->end_date   = $request->end;
                 $task->save();

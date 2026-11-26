@@ -12,6 +12,8 @@ use App\Timesheet;
 use App\User;
 use App\UserContact;
 use App\UserToDo;
+use App\Support\RequestGuard;
+use App\Support\SafeQuery;
 use App\Utility;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Http\Request;
@@ -106,31 +108,30 @@ class UserController extends Controller
      */
     public function destroy($id)
     {
+        $auth = Auth::user();
         $user = User::find($id);
+        $user_contact = ($user && (int) $user->id !== (int) $auth->id)
+            ? UserContact::where('parent_id', '=', $auth->id)->where('user_id', '=', $user->id)->first()
+            : null;
 
-        if($user)
+        if($user && $user_contact)
         {
-            // Delete From Project Task Table
             ProjectTask::removeAssigned($user->id);
 
-            // Delete From Project User Table
-            ProjectUser::where('user_id', '=', $id)->delete();
+            $ownedProjectIds = ProjectUser::where('user_id', '=', $auth->id)->where('permission', '=', 'owner')->pluck('project_id');
+            ProjectUser::where('user_id', '=', $user->id)->whereIn('project_id', $ownedProjectIds)->delete();
 
-            // Delete From Timesheet Table
-            Timesheet::where('created_by', '=', $id)->delete();
+            Timesheet::where('created_by', '=', $user->id)->whereIn('project_id', $ownedProjectIds)->delete();
 
-            $user_contact = UserContact::where('parent_id', '=', Auth::user()->id)->where('user_id', '=', $user->id)->first();
             $user_contact->delete();
 
             $user->created_by = 1;
-            $user->update();
+            $user->save();
 
             return redirect()->back()->with('success', __('User deleted successfully.'));
         }
-        else
-        {
-            return redirect()->back()->with('error', __('Something went wrong.'));
-        }
+
+        return redirect()->back()->with('error', __('Permission Denied.'));
     }
 
     // User Filter
@@ -151,16 +152,27 @@ class UserController extends Controller
                 $usr_contact->where('role', 'client');
             }
 
-            $usr_contact = $usr_contact->pluck('user_id')->toArray();;
+            $usr_contact = $usr_contact->pluck('user_id')->toArray();
             $users = User::whereIn('id', $usr_contact);
 
             if(!empty($request->keyword))
             {
-                $users->where('name', 'LIKE', $request->keyword . '%')->orWhereRaw('FIND_IN_SET("' . $request->keyword . '",skills)');
+                $keyword = $request->keyword;
+                $like    = '%' . RequestGuard::likePrefix($keyword) . '%';
+                $users->where(function ($query) use ($keyword, $like){
+                    $query->where('name', 'LIKE', $like);
+                    SafeQuery::orFindInSet($query, 'skills', $keyword);
+                });
+            }
+
+            $view = RequestGuard::allowedView($request->view, ['grid', 'list'], 'grid');
+            if(!view()->exists('users.' . $view))
+            {
+                abort(404);
             }
 
             $users      = $users->where('id', '!=', $usr->id)->get();
-            $returnHTML = view('users.' . $request->view, compact('users'))->render();
+            $returnHTML = view('users.' . $view, compact('users'))->render();
 
             return response()->json(
                 [
@@ -175,7 +187,18 @@ class UserController extends Controller
     {
         $authuser   = Auth::user();
         $project_id = $request->project_id;
-        $role       = $request->role;
+        $role       = in_array($request->role, ['user', 'client'], true) ? $request->role : null;
+
+        if(!$authuser->isProjectOwner($project_id) || $role === null)
+        {
+            return json_encode(
+                [
+                    'code' => 403,
+                    'status' => 'Error',
+                    'error' => __('Permission Denied.'),
+                ]
+            );
+        }
 
         if(isset($request->email) && !empty($request->email))
         {
@@ -288,7 +311,7 @@ class UserController extends Controller
         {
             $validate = [
                 'old_password' => 'required',
-                'password' => 'required|min:8|same:password',
+                'password' => 'required|min:8|confirmed',
                 'password_confirmation' => 'required|min:8|same:password',
             ];
         }
@@ -296,7 +319,7 @@ class UserController extends Controller
         if(isset($request->avatar) && !empty($request->avatar))
         {
             $validate = [
-                'avatar' => 'required|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
+                'avatar' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
             ];
         }
 
@@ -314,35 +337,44 @@ class UserController extends Controller
             return redirect()->back()->with('error', $validator->errors()->first());
         }
 
-        $post = $request->all();
-
-        // remove email from array wee don't need to update that email
-        unset($post['email']);
-
-        // Image Uploading
-        if($request->avatar)
+        if($request->from == 'profile')
         {
-            Utility::checkFileExistsnDelete([$objUser->avatar]);
-            $avatarName = $objUser->id . '_avatar' . time() . '.' . $request->avatar->getClientOriginalExtension();
-            $request->avatar->storeAs('avatars', $avatarName);
-            $post['avatar'] = 'avatars/' . $avatarName;
+            $objUser->name      = $request->name;
+            $objUser->dob       = $request->dob;
+            $objUser->gender    = $request->gender;
+            $objUser->phone     = $request->phone;
+            $objUser->facebook  = $request->facebook;
+            $objUser->whatsapp  = $request->whatsapp;
+            $objUser->instagram = $request->instagram;
+            $objUser->likedin   = $request->likedin;
+            $objUser->skills    = $request->skills;
         }
-
-        // Password Confirmation
-        if($request->from == 'password')
+        elseif($request->from == 'password')
         {
-            $current_password = $objUser->password;
-            if(!Hash::check($post['old_password'], $current_password))
+            if(!Hash::check($request->old_password, $objUser->password))
             {
                 return redirect()->back()->with('error', __('Please Enter Correct Current Password!'));
             }
-            else
-            {
-                $post['password'] = Hash::make($request->password);
-            }
+
+            $objUser->password = Hash::make($request->password);
+        }
+        elseif(!$request->avatar)
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
         }
 
-        $objUser->update($post);
+        if($request->avatar)
+        {
+            Utility::checkFileExistsnDelete([$objUser->avatar]);
+            $extension  = strtolower($request->avatar->getClientOriginalExtension());
+            $allowed    = ['jpeg', 'jpg', 'png', 'gif'];
+            $extension  = in_array($extension, $allowed, true) ? $extension : 'png';
+            $avatarName = $objUser->id . '_avatar' . time() . '.' . $extension;
+            $request->avatar->storeAs('avatars', $avatarName);
+            $objUser->avatar = 'avatars/' . $avatarName;
+        }
+
+        $objUser->save();
 
         if($request->avatar)
         {
@@ -363,14 +395,12 @@ class UserController extends Controller
         $user = User::find($id);
         if(Auth::user()->type != 'admin' && !empty($user))
         {
-            $role         = $user->usrRole();
-            $usr_contacts = Auth::user()->contacts()->pluck('user_id')->toArray();
-
-            // add logged user id
-            array_unshift($usr_contacts, $id);
+            $usr_contacts   = Auth::user()->contacts()->pluck('user_id')->toArray();
+            $usr_contacts[] = Auth::user()->id;
 
             if(in_array($id, $usr_contacts))
             {
+                $role = $user->usrRole();
                 $user_projects = $user->projects()->pluck('project_id')->toArray();
                 $project_tasks = ProjectTask::whereIn('project_id', $user_projects)->whereRaw("find_in_set('" . $user->id . "',assign_to)")->get()->pluck('id')->toArray();
                 $user_data     = [];
@@ -460,7 +490,12 @@ class UserController extends Controller
 
     public function todo_update($todo_id)
     {
-        $user_todo = UserToDo::find($todo_id);
+        $user_todo = UserToDo::where('id', '=', $todo_id)->where('user_id', '=', Auth::user()->id)->first();
+        if(!$user_todo)
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
         if($user_todo->is_complete == 0)
         {
             $user_todo->is_complete = 1;
@@ -476,7 +511,12 @@ class UserController extends Controller
 
     public function todo_destroy($id)
     {
-        $todo = UserToDo::find($id);
+        $todo = UserToDo::where('id', '=', $id)->where('user_id', '=', Auth::user()->id)->first();
+        if(!$todo)
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
         $todo->delete();
 
         return true;
@@ -520,10 +560,11 @@ class UserController extends Controller
         {
             foreach($tasks as $task)
             {
+                $projectName = $task->project ? $task->project->name : '';
                 $html .= '<li>
                             <a class="list-link" href="' . route('projects.tasks.index', $task->project_id) . '">
                                 <i class="fas fa-search"></i>
-                                <span>' . $task->name . '</span> ' . __('in ') . $task->project->name . '
+                                <span>' . e($task->name) . '</span> ' . e(__('in ')) . e($projectName) . '
                             </a>
                         </li>';
             }
@@ -544,7 +585,15 @@ class UserController extends Controller
     // Get User Projects and Due Task in Modal
     public function getProjectTask($user_id, $type)
     {
-        $user          = User::find($user_id);
+        $auth = Auth::user();
+        $user = User::find($user_id);
+        $allowed = $user && ((int) $user->id === (int) $auth->id || UserContact::where('parent_id', '=', $auth->id)->where('user_id', '=', $user->id)->exists());
+
+        if(!$allowed || !in_array($type, ['project', 'due_task'], true))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         $user_projects = $user->projects()->pluck('project_id')->toArray();
 
         $user_data = [];
@@ -558,7 +607,8 @@ class UserController extends Controller
         }
         else
         {
-            $user_data['due_task'] = ProjectTask::where('is_complete', '=', 0)->whereIn('project_id', $user_projects)->orderBy('end_date', 'DESC')->limit(5)->get();
+            $sharedProjects = array_values(array_intersect($user_projects, $auth->projects()->pluck('project_id')->toArray()));
+            $user_data['due_task'] = ProjectTask::where('is_complete', '=', 0)->whereIn('project_id', $sharedProjects)->orderBy('end_date', 'DESC')->limit(5)->get();
 
             return view('users.due_tasks', compact('user', 'user_data'));
         }
@@ -626,7 +676,11 @@ class UserController extends Controller
         if(Auth::user()->type == 'admin')
         {
             $Filesystem = new Filesystem();
-            $langCode   = strtolower($request->code);
+            $langCode   = RequestGuard::safeLangCode($request->code);
+            if(!$langCode)
+            {
+                return redirect()->back()->with('error', __('Permission Denied.'));
+            }
             $langDir    = base_path() . '/resources/lang/';
             $dir        = $langDir;
             if(!is_dir($dir))
@@ -658,7 +712,9 @@ class UserController extends Controller
 
     public function storeLangData($currantLang, Request $request)
     {
-        if(Auth::user()->type == 'admin')
+        $currantLang = RequestGuard::safeLangCode($currantLang);
+
+        if(Auth::user()->type == 'admin' && $currantLang)
         {
             //            $Filesystem = new Filesystem();
             $dir = base_path() . '/resources/lang';
@@ -679,10 +735,16 @@ class UserController extends Controller
                 chmod($langFolder, 0777);
             }
 
-            if(!empty($request->message))
+            if(!empty($request->message) && is_array($request->message))
             {
                 foreach($request->message as $fileName => $fileData)
                 {
+                    $fileName = preg_replace('/[^A-Za-z0-9_]/', '', (string) $fileName);
+                    if($fileName === '' || !is_array($fileData))
+                    {
+                        continue;
+                    }
+
                     $content = "<?php return [";
                     $content .= $this->buildArray($fileData);
                     $content .= "];";
@@ -703,13 +765,19 @@ class UserController extends Controller
         $content = "";
         foreach($fileData as $lable => $data)
         {
+            $label = preg_replace('/[^A-Za-z0-9_]/', '', (string) $lable);
+            if($label === '')
+            {
+                continue;
+            }
+
             if(is_array($data))
             {
-                $content .= "'$lable'=>[" . $this->buildArray($data) . "],";
+                $content .= "'" . $label . "'=>[" . $this->buildArray($data) . "],";
             }
             else
             {
-                $content .= "'$lable'=>'" . addslashes($data) . "',";
+                $content .= "'" . $label . "'=>'" . addslashes($data) . "',";
             }
         }
 
@@ -718,6 +786,12 @@ class UserController extends Controller
 
     public function changeLang($lang)
     {
+        $lang = RequestGuard::safeLangCode($lang);
+        if(!$lang)
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         $user       = \Auth::user();
         $user->lang = $lang;
         $user->save();
@@ -729,7 +803,9 @@ class UserController extends Controller
     {
         $usr = Auth::user();
 
-        if($usr->type == 'admin')
+        $lang = RequestGuard::safeLangCode($lang);
+
+        if($usr->type == 'admin' && $lang)
         {
             $default_lang = $usr->lang;
 
@@ -812,23 +888,43 @@ class UserController extends Controller
     public function addUserMember(Request $request)
     {
         $authuser = Auth::user();
+        $validator = Validator::make(
+            $request->all(), [
+                'username' => 'required|string|max:120',
+                'useremail' => 'required|email|unique:users,email',
+                'userpassword' => 'required|string|min:8',
+                'userrole' => 'required|in:user,client',
+            ]
+        );
+
+        if($validator->fails())
+        {
+            return json_encode(
+                [
+                    'code' => 404,
+                    'status' => 'Error',
+                    'error' => $validator->errors()->first(),
+                ]
+            );
+        }
+
         $name     = $request->username;
         $email    = $request->useremail;
         $password = $request->userpassword;
         $userrole = $request->userrole;
 
-        // make new user
         $user = User::create(
             [
                 'name' => $name,
                 'email' => $email,
                 'password' => Hash::make($password),
-                'type' => 'user',
-                'created_by' => $authuser->id,
                 'lang' => 'en',
-                'is_active' => 1,
             ]
         );
+        $user->type       = 'user';
+        $user->created_by = $authuser->id;
+        $user->is_active  = 1;
+        $user->save();
 
         $uArr = [
             'email' => $email,

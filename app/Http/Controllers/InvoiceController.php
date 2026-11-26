@@ -13,6 +13,7 @@ use App\ProjectTask;
 use App\ProjectUser;
 use App\Tax;
 use App\User;
+use App\Support\RequestGuard;
 use App\Utility;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -81,6 +82,17 @@ class InvoiceController extends Controller
         $invoice->client_id  = $request->client_id;
         $invoice->due_date   = $request->due_date;
         $invoice->tax_id     = $request->tax_id;
+        if(!\Auth::user()->isProjectOwner($request->project_id))
+        {
+            return redirect()->route('invoices.index')->with('error', __('Permission Denied.'));
+        }
+
+        $clientBelongs = ProjectUser::where('project_id', '=', $request->project_id)->where('user_id', '=', $request->client_id)->where('permission', '=', 'client')->exists();
+        if(!$clientBelongs)
+        {
+            return redirect()->route('invoices.index')->with('error', __('Permission Denied.'));
+        }
+
         $invoice->created_by = \Auth::user()->id;
         $invoice->save();
 
@@ -96,17 +108,22 @@ class InvoiceController extends Controller
      */
     public function show(Invoice $invoice)
     {
-        $usr            = Auth::user();
-        $left_address   = $usr->decodeDetails();
-        $creator_detail = $usr->decodeDetails($invoice->created_by);
+        $usr = Auth::user();
+        if(!$this->canViewInvoice($invoice))
+        {
+            return redirect()->route('invoices.index')->with('error', __('Permission Denied.'));
+        }
+
+        $left_address   = $this->publicDetails($usr->decodeDetails());
+        $creator_detail = $this->publicDetails($usr->decodeDetails($invoice->created_by));
 
         if($invoice->client_id == $usr->id)
         {
-            $right_address = $usr->decodeDetails($invoice->created_by);
+            $right_address = $creator_detail;
         }
         else
         {
-            $right_address = $usr->decodeDetails($invoice->client_id);
+            $right_address = $this->publicDetails($usr->decodeDetails($invoice->client_id));
         }
 
         return view('invoices.show', compact('invoice', 'left_address', 'right_address', 'creator_detail'));
@@ -213,6 +230,11 @@ class InvoiceController extends Controller
     // project wise load client
     function jsonClient(Request $request)
     {
+        if(!Auth::user()->isProjectMember($request->project_id))
+        {
+            return response()->json([], 403);
+        }
+
         $client_user = ProjectUser::where('project_id', '=', $request->project_id)->where('permission', 'client')->pluck('user_id')->toArray();
         $clients     = User::whereIn('id', array_unique($client_user))->get()->pluck('name', 'id');
 
@@ -300,7 +322,11 @@ class InvoiceController extends Controller
 
         if($invoice->created_by == $usr->id)
         {
-            $invoiceProduct = InvoiceProduct::find($product_id);
+            $invoiceProduct = InvoiceProduct::where('id', '=', $product_id)->where('invoice_id', '=', $invoice->id)->first();
+            if(!$invoiceProduct)
+            {
+                return redirect()->back()->with('error', __('Permission denied.'));
+            }
             $invoiceProduct->delete();
 
             if($invoice->getDue() <= 0.0)
@@ -393,6 +419,11 @@ class InvoiceController extends Controller
     {
         $objUser = Auth::user();
         $invoice = Invoice::find($id);
+        if(!$invoice || (int) $invoice->client_id !== (int) $objUser->id)
+        {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $details = $objUser->decodeDetails($invoice->created_by);
 
         if($details['enable_stripe'] == 'on')
@@ -466,7 +497,7 @@ class InvoiceController extends Controller
                     }
                     catch(\Exception $e)
                     {
-                        return redirect()->route('invoices.show', $invoice->id)->with('error', __($e->getMessage()));
+                        return redirect()->route('invoices.show', $invoice->id)->with('error', __('Transaction has been failed!'));
                     }
                 }
             }
@@ -518,7 +549,13 @@ class InvoiceController extends Controller
 
     public function paymentReminder($invoice_id)
     {
-        $invoice            = Invoice::find($invoice_id);
+        $usr     = Auth::user();
+        $invoice = Invoice::find($invoice_id);
+        if(!$invoice || (int) $invoice->created_by !== (int) $usr->id)
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         $client             = !empty($invoice->project) ? $invoice->client : '';
         $invoice->dueAmount = Utility::projectCurrencyFormat($invoice->project_id, $invoice->getDue(), true);
         $invoice->name      = !empty($client) ? $client->name : 'Dear';
@@ -587,6 +624,10 @@ class InvoiceController extends Controller
 
         foreach($post as $key => $data)
         {
+            if($key === 'invoice_template')
+            {
+                $data = RequestGuard::safeInvoiceTemplate($data);
+            }
             $details[$key] = $data;
         }
 
@@ -601,16 +642,24 @@ class InvoiceController extends Controller
 
     public function printInvoice($id)
     {
-        $usr       = Auth::user();
-        $invoiceId = Crypt::decrypt($id);
-        $invoice   = Invoice::find($invoiceId);
+        $usr = Auth::user();
+        try
+        {
+            $invoiceId = Crypt::decrypt($id);
+        }
+        catch(\Throwable $e)
+        {
+            abort(404);
+        }
 
-        if($invoice->created_by == $usr->id || $invoice->client_id == $usr->id)
+        $invoice = Invoice::find($invoiceId);
+
+        if($invoice && ($invoice->created_by == $usr->id || $invoice->client_id == $usr->id))
         {
             if($invoice)
             {
-                $invoice_creator = $usr->decodeDetails($invoice->created_by);
-                $left_address    = $usr->decodeDetails();
+                $invoice_creator = $this->publicDetails($usr->decodeDetails($invoice->created_by));
+                $left_address    = $this->publicDetails($usr->decodeDetails());
 
                 if($invoice->client_id == $usr->id)
                 {
@@ -618,7 +667,7 @@ class InvoiceController extends Controller
                 }
                 else
                 {
-                    $right_address = $usr->decodeDetails($invoice->client_id);
+                    $right_address = $this->publicDetails($usr->decodeDetails($invoice->client_id));
                 }
 
                 $color      = '#' . $invoice_creator['invoice_color'];
@@ -632,17 +681,26 @@ class InvoiceController extends Controller
                 $footer['invoice_footer_title'] = $invoice_usr->decodeDetails()['invoice_footer_title'];
                 $footer['invoice_footer_note']  = $invoice_usr->decodeDetails()['invoice_footer_note'];
 
-                return view('invoices.templates.' . $invoice_creator['invoice_template'], compact('invoice', 'color', 'img', 'font_color', 'left_address', 'right_address', 'footer'));
+                $template = RequestGuard::safeInvoiceTemplate($invoice_creator['invoice_template']);
+
+                return view('invoices.templates.' . $template, compact('invoice', 'color', 'img', 'font_color', 'left_address', 'right_address', 'footer'));
             }
             else
             {
                 return redirect()->back()->with('error', __('Permission denied.'));
             }
         }
+
+        return redirect()->back()->with('error', __('Permission denied.'));
     }
 
     public function previewInvoice($template, $color)
     {
+        if(!in_array($template, RequestGuard::invoiceTemplates(), true) || !RequestGuard::hexColor($color))
+        {
+            abort(404);
+        }
+
         $usr           = Auth::user();
         $left_address  = [
             'light_logo' => asset(\Storage::url('logo/logo.png')),
@@ -727,6 +785,20 @@ class InvoiceController extends Controller
         $footer['invoice_footer_note']  = $usr->decodeDetails()['invoice_footer_note'];
 
         return view('invoices.templates.' . $template, compact('invoice', 'preview', 'color', 'img', 'font_color', 'left_address', 'right_address', 'footer'));
+    }
+
+    protected function canViewInvoice($invoice)
+    {
+        $user = Auth::user();
+
+        return $invoice && $user && ((int) $invoice->created_by === (int) $user->id || (int) $invoice->client_id === (int) $user->id);
+    }
+
+    protected function publicDetails(array $details)
+    {
+        unset($details['stripe_secret'], $details['paypal_secret_key']);
+
+        return $details;
     }
 
     // Client Side Invoice Send

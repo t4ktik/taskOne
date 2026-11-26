@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Project;
 use App\ProjectTask;
+use App\ProjectUser;
 use App\Timesheet;
 use App\User;
 use App\Utility;
@@ -86,6 +87,17 @@ class TimesheetController extends Controller
         if($request->has('week') && $request->has('project_id'))
         {
             $project_ids = $authuser->projects()->pluck('project_id')->toArray();
+            if($seeAsOwner)
+            {
+                if((string) $project_id === '0')
+                {
+                    $project_ids = ProjectUser::where('user_id', '=', $authuser->id)->where('permission', '=', 'owner')->pluck('project_id')->toArray();
+                }
+                elseif(!$authuser->isProjectOwner($project_id))
+                {
+                    $seeAsOwner = false;
+                }
+            }
             $timesheets  = Timesheet::select('timesheets.*')->join('projects', 'projects.id', '=', 'timesheets.project_id');
             if($timesheet_type == 'task')
             {
@@ -328,8 +340,12 @@ class TimesheetController extends Controller
         $authuser = Auth::user();
         $project  = Project::find($request->project_id);
 
-        if($project)
+        if($project && $authuser->hasProjectPermission($project->id, 'create timesheet'))
         {
+            if($request->task_id && !ProjectTask::where('id', '=', $request->task_id)->where('project_id', '=', $project->id)->exists())
+            {
+                return redirect()->back()->with('error', __('Permission Denied.'));
+            }
 
             $request->validate(
                 [
@@ -438,9 +454,10 @@ class TimesheetController extends Controller
 
     public function timesheetUpdate(Request $request, $timesheet_id)
     {
-        $project = Project::find($request->project_id);
+        $timesheet = Timesheet::find($timesheet_id);
+        $project   = Project::find($request->project_id);
 
-        if($project)
+        if($project && $timesheet && $this->canManageTimesheet($timesheet) && Auth::user()->isProjectMember($project->id))
         {
 
             $request->validate(
@@ -456,7 +473,6 @@ class TimesheetController extends Controller
 
             $time = ($hour != '' ? ($hour < 10 ? '0' + $hour : $hour) : '00') . ':' . ($minute != '' ? ($minute < 10 ? '0' + $minute : $minute) : '00');
 
-            $timesheet              = Timesheet::find($timesheet_id);
             $timesheet->project_id  = $request->project_id;
             $timesheet->task_id     = $request->task_id;
             $timesheet->date        = $request->date;
@@ -466,17 +482,37 @@ class TimesheetController extends Controller
 
             return redirect()->back()->with('success', __('Timesheet Updated Successfully!'));
         }
+
+        return redirect()->back()->with('error', __('Permission Denied.'));
     }
 
     public function timesheetDestroy($timesheet_id)
     {
         $timesheet = Timesheet::find($timesheet_id);
 
-        if($timesheet)
+        if($timesheet && $this->canManageTimesheet($timesheet))
         {
             $timesheet->delete();
+
+            return redirect()->back()->with('success', __('Timesheet deleted Successfully!'));
         }
 
-        return redirect()->back()->with('success', __('Timesheet deleted Successfully!'));
+        return redirect()->back()->with('error', __('Permission Denied.'));
+    }
+
+    protected function canManageTimesheet($timesheet)
+    {
+        $user = Auth::user();
+        if(!$timesheet || !$user || !$user->isProjectMember($timesheet->project_id))
+        {
+            return false;
+        }
+
+        if((int) $timesheet->created_by === (int) $user->id)
+        {
+            return true;
+        }
+
+        return $user->isProjectOwner($timesheet->project_id) || $user->hasProjectPermission($timesheet->project_id, 'show as admin timesheet');
     }
 }

@@ -44,7 +44,10 @@ class XSS
         $input = $request->all();
         array_walk_recursive(
             $input, function (&$input){
-            $input = strip_tags($input);
+            if(is_string($input))
+            {
+                $input = strip_tags($input);
+            }
         }
         );
         $request->merge($input);

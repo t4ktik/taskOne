@@ -9,6 +9,7 @@ use App\TaskChecklist;
 use App\TaskComment;
 use App\TaskFile;
 use App\TaskStage;
+use App\Support\RequestGuard;
 use App\Utility;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -24,7 +25,7 @@ class ProjectTaskController extends Controller
     public function index($project_id)
     {
         $usr = \Auth::user();
-        if($usr->type != 'admin')
+        if($usr->type != 'admin' && $usr->isProjectMember($project_id))
         {
             $project = Project::find($project_id);
             $stages  = TaskStage::where('project_id', '=', $project_id)->orderBy('order')->get();
@@ -60,6 +61,11 @@ class ProjectTaskController extends Controller
      */
     public function create($project_id, $stage_id)
     {
+        if(!Auth::user()->hasProjectPermission($project_id, 'create task'))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         $project = Project::find($project_id);
         $hrs     = Project::projectHrs($project_id);
 
@@ -88,11 +94,17 @@ class ProjectTaskController extends Controller
             return redirect()->back()->with('error', $validator->errors()->first());
         }
 
-        $usr        = Auth::user();
+        $usr = Auth::user();
+        if(!$usr->hasProjectPermission($project_id, 'create task') || !isset(ProjectTask::$priority[$request->priority]))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         $project    = Project::find($project_id);
         $last_stage = $project->taskstages()->orderBy('order', 'DESC')->first()->id;
 
-        $post               = $request->all();
+        $post = $request->only(['name', 'description', 'estimated_hrs', 'start_date', 'end_date', 'priority', 'milestone_id']);
+        $post['assign_to']  = RequestGuard::idList($request->assign_to);
         $post['project_id'] = $project->id;
         $post['stage_id']   = $stage_id;
         $post['created_by'] = $usr->id;
@@ -138,8 +150,13 @@ class ProjectTaskController extends Controller
 
     public function show($project_id, $task_id)
     {
+        $task = $this->taskForActor($project_id, $task_id, 'show task');
+        if(!$task)
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         $allow_progress = Project::find($project_id)->task_progress;
-        $task           = ProjectTask::find($task_id);
 
         return view('tasks.show', compact('task', 'allow_progress'));
     }
@@ -153,8 +170,13 @@ class ProjectTaskController extends Controller
      */
     public function edit($project_id, $task_id)
     {
+        $task = $this->taskForActor($project_id, $task_id, 'edit task');
+        if(!$task)
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         $project = Project::find($project_id);
-        $task    = ProjectTask::find($task_id);
         $hrs     = Project::projectHrs($project_id);
 
         return view('tasks.edit', compact('project', 'task', 'hrs'));
@@ -183,8 +205,14 @@ class ProjectTaskController extends Controller
             return redirect()->back()->with('error', $validator->errors()->first());
         }
 
-        $post = $request->all();
-        $task = ProjectTask::find($task_id);
+        $task = $this->taskForActor($project_id, $task_id, 'edit task');
+        if(!$task || !isset(ProjectTask::$priority[$request->priority]))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
+        $post = $request->only(['name', 'description', 'estimated_hrs', 'start_date', 'end_date', 'priority', 'milestone_id']);
+        $post['assign_to'] = RequestGuard::idList($request->assign_to);
         $task->update($post);
 
         return redirect()->back()->with('success', __('Task Updated successfully.'));
@@ -199,6 +227,11 @@ class ProjectTaskController extends Controller
      */
     public function destroy($project_id, $task_id)
     {
+        if(!$this->taskForActor($project_id, $task_id, 'delete task'))
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
         ProjectTask::deleteTask([$task_id]);
 
         echo json_encode(['task_id' => $task_id]);
@@ -207,6 +240,12 @@ class ProjectTaskController extends Controller
     // Check Task When delete
     public function getStageTasks(Request $request, $stage_id)
     {
+        $stage = TaskStage::find($stage_id);
+        if(!$stage || !Auth::user()->isProjectMember($stage->project_id))
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
         $count = ProjectTask::where('stage_id', $stage_id)->count();
         echo json_encode($count);
     }
@@ -216,6 +255,10 @@ class ProjectTaskController extends Controller
     {
         $user    = \Auth::user();
         $project = Project::find($project_id);
+        if(!$project || !$user->hasProjectPermission($project_id, 'move task'))
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
 
         // Save data as per order
         if(isset($request->sort))
@@ -225,7 +268,11 @@ class ProjectTaskController extends Controller
                 if(!empty($taskID))
                 {
                     echo $index . "-" . $taskID;
-                    $task        = ProjectTask::find($taskID);
+                    $task = ProjectTask::where('id', '=', $taskID)->where('project_id', '=', $project_id)->first();
+                    if(!$task)
+                    {
+                        continue;
+                    }
                     $task->order = $index;
                     $task->save();
                 }
@@ -235,11 +282,15 @@ class ProjectTaskController extends Controller
         // Update Task Stage
         if($request->new_stage != $request->old_stage)
         {
-            $new_stage  = TaskStage::find($request->new_stage);
-            $old_stage  = TaskStage::find($request->old_stage);
+            $new_stage  = TaskStage::where('id', '=', $request->new_stage)->where('project_id', '=', $project_id)->first();
+            $old_stage  = TaskStage::where('id', '=', $request->old_stage)->where('project_id', '=', $project_id)->first();
             $last_stage = $project->taskstages()->orderBy('order', 'DESC')->first()->id;
 
-            $task           = ProjectTask::find($request->id);
+            $task = ProjectTask::where('id', '=', $request->id)->where('project_id', '=', $project_id)->first();
+            if(!$task || !$new_stage || !$old_stage)
+            {
+                return response()->json(['error' => __('Permission Denied.')], 403);
+            }
             $task->stage_id = $request->new_stage;
             if($request->new_stage == $last_stage)
             {
@@ -277,6 +328,11 @@ class ProjectTaskController extends Controller
     // Task Comments
     public function commentStore(Request $request, $projectID, $taskID)
     {
+        if(!$this->taskForActor($projectID, $taskID, 'show task'))
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
         $post               = [];
         $post['task_id']    = $taskID;
         $post['comment']    = $request->comment;
@@ -299,7 +355,13 @@ class ProjectTaskController extends Controller
 
     public function commentDestroy(Request $request, $projectID, $taskID, $commentID)
     {
-        $comment = TaskComment::find($commentID);
+        $task = $this->taskForActor($projectID, $taskID, 'show task');
+        $comment = $task ? TaskComment::where('id', '=', $commentID)->where('task_id', '=', $task->id)->first() : null;
+        if(!$comment)
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
         $comment->delete();
 
         return "true";
@@ -308,14 +370,25 @@ class ProjectTaskController extends Controller
     // Task files
     public function commentStoreFile(Request $request, $projectID, $taskID)
     {
+        if(!$this->taskForActor($projectID, $taskID, 'show task'))
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
         $request->validate(
-            ['file' => 'required|mimes:jpeg,jpg,png,gif,svg,pdf,txt,doc,docx,zip,rar|max:20480']
+            ['file' => 'required|mimes:jpeg,jpg,png,gif,pdf,txt,doc,docx,zip,rar|max:20480']
         );
-        $fileName = $taskID . time() . "_" . $request->file->getClientOriginalName();
+        $extension = strtolower($request->file->getClientOriginalExtension());
+        $allowed   = ['jpeg', 'jpg', 'png', 'gif', 'pdf', 'txt', 'doc', 'docx', 'zip', 'rar'];
+        if(!in_array($extension, $allowed, true))
+        {
+            $extension = 'bin';
+        }
+        $fileName = $taskID . '_' . time() . '_' . bin2hex(random_bytes(8)) . '.' . $extension;
         $request->file->storeAs('tasks', $fileName);
         $post['task_id']     = $taskID;
         $post['file']        = $fileName;
-        $post['name']        = $request->file->getClientOriginalName();
+        $post['name']        = basename(str_replace("\0", '', $request->file->getClientOriginalName()));
         $post['extension']   = $request->file->getClientOriginalExtension();
         $post['file_size']   = round(($request->file->getSize() / 1024) / 1024, 2) . ' MB';
         $post['created_by']  = \Auth::user()->id;
@@ -336,8 +409,14 @@ class ProjectTaskController extends Controller
 
     public function commentDestroyFile(Request $request, $projectID, $taskID, $fileID)
     {
-        $commentFile = TaskFile::find($fileID);
-        $path        = storage_path('tasks/' . $commentFile->file);
+        $task = $this->taskForActor($projectID, $taskID, 'show task');
+        $commentFile = $task ? TaskFile::where('id', '=', $fileID)->where('task_id', '=', $task->id)->first() : null;
+        if(!$commentFile)
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
+        $path        = storage_path('tasks/' . basename($commentFile->file));
         if(file_exists($path))
         {
             \File::delete($path);
@@ -350,6 +429,11 @@ class ProjectTaskController extends Controller
     // Task Checklist
     public function checklistStore(Request $request, $projectID, $taskID)
     {
+        if(!$this->taskForActor($projectID, $taskID, 'show task'))
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
         $request->validate(
             ['name' => 'required']
         );
@@ -381,7 +465,12 @@ class ProjectTaskController extends Controller
 
     public function checklistUpdate($projectID, $checklistID)
     {
-        $checkList = TaskChecklist::find($checklistID);
+        $checkList = $this->checklistForActor($projectID, $checklistID);
+        if(!$checkList)
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
         if($checkList->status == 0)
         {
             $checkList->status = 1;
@@ -397,7 +486,12 @@ class ProjectTaskController extends Controller
 
     public function checklistDestroy($projectID, $checklistID)
     {
-        $checkList = TaskChecklist::find($checklistID);
+        $checkList = $this->checklistForActor($projectID, $checklistID);
+        if(!$checkList)
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
         $checkList->delete();
 
         return "true";
@@ -406,7 +500,12 @@ class ProjectTaskController extends Controller
     // For Favorite
     public function changeFav($projectID, $taskId)
     {
-        $task = ProjectTask::find($taskId);
+        $task = $this->taskForActor($projectID, $taskId, 'show task');
+        if(!$task)
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
         if($task->is_favourite == 0)
         {
             $task->is_favourite = 1;
@@ -427,7 +526,12 @@ class ProjectTaskController extends Controller
     public function changeCom($projectID, $taskId)
     {
         $project = Project::find($projectID);
-        $task    = ProjectTask::find($taskId);
+        $task    = $this->taskForActor($projectID, $taskId, 'show task');
+        if(!$project || !$task)
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
 
         if($task->is_complete == 0)
         {
@@ -456,8 +560,14 @@ class ProjectTaskController extends Controller
     // For Change Progress
     public function changeProg(Request $request, $projectID, $taskId)
     {
-        $task           = ProjectTask::find($taskId);
-        $task->progress = $request->progress;
+        $task = $this->taskForActor($projectID, $taskId, 'show task');
+        $progress = $request->progress;
+        if(!$task || !is_numeric($progress) || $progress < 0 || $progress > 100)
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
+        $task->progress = $progress;
         $task->save();
 
         return ['task_id' => $taskId];
@@ -466,7 +576,12 @@ class ProjectTaskController extends Controller
     // For Realod Task Section
     public function taskGet($task_id)
     {
-        $task        = ProjectTask::find($task_id);
+        $task = ProjectTask::find($task_id);
+        if(!$task || !Auth::user()->isProjectMember($task->project_id))
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
         $permissions = Auth::user()->getPermission($task->project_id);
 
         $html = '';
@@ -500,7 +615,7 @@ class ProjectTaskController extends Controller
                                                  $task->project_id,
                                                  $task->id,
                                              ]
-                    ) . '" data-ajax-popup="true" data-size="lg" data-title="' . __("Edit ") . $task->name . '" class="dropdown-item">' . __('Edit') . '</a>';
+                    ) . '" data-ajax-popup="true" data-size="lg" data-title="' . e(__("Edit ") . $task->name) . '" class="dropdown-item">' . __('Edit') . '</a>';
             }
             if(isset($permissions) && in_array('delete task', $permissions))
             {
@@ -521,7 +636,7 @@ class ProjectTaskController extends Controller
                                          $task->project_id,
                                          $task->id,
                                      ]
-            ) . '" data-ajax-popup-right="true">' . $task->name . '</a>';
+            ) . '" data-ajax-popup-right="true">' . e($task->name) . '</a>';
         $html .= '<div class="row align-items-center">';
         $html .= '<div class="col-12">';
         $html .= '<div class="actions d-inline-block">';
@@ -556,7 +671,7 @@ class ProjectTaskController extends Controller
                 if($key < 3)
                 {
                     $html .= ' <a href="#" class="avatar rounded-circle avatar-sm">';
-                    $html .= '<img ' . $user->img_avatar . ' title="' . $user->name . '">';
+                    $html .= '<img ' . $user->img_avatar . ' title="' . e($user->name) . '">';
                     $html .= '</a>';
                 }
             }
@@ -578,11 +693,11 @@ class ProjectTaskController extends Controller
     public function updateTaskPriorityColor(Request $request)
     {
         $task_id = $request->input('task_id');
-        $color   = $request->input('color');
+        $color   = RequestGuard::hexColor($request->input('color'));
 
         $task = ProjectTask::find($task_id);
 
-        if($task && $color)
+        if($task && $color && Auth::user()->hasProjectPermission($task->project_id, 'edit task'))
         {
             $task->priority_color = $color;
             $task->save();
@@ -624,8 +739,9 @@ class ProjectTaskController extends Controller
 
         if($request->ajax() && $request->has('view') && $request->has('sort'))
         {
-            $sort  = explode('-', $request->sort);
-            $tasks = ProjectTask::whereIn('project_id', $user_projects)->orderBy($sort[0], $sort[1]);
+            list($sortColumn, $sortDirection) = RequestGuard::sort($request->sort, ['created_at', 'name', 'end_date']);
+            $tasks = ProjectTask::whereIn('project_id', $user_projects)->orderBy($sortColumn, $sortDirection);
+            $view  = RequestGuard::allowedView($request->view, ['grid', 'list'], 'list');
 
             if(!empty($request->keyword))
             {
@@ -674,7 +790,7 @@ class ProjectTaskController extends Controller
             }
 
             $tasks      = $tasks->get();
-            $returnHTML = view('tasks.' . $request->view, compact('tasks'))->render();
+            $returnHTML = view('tasks.' . $view, compact('tasks'))->render();
 
             return response()->json(
                 [
@@ -692,7 +808,10 @@ class ProjectTaskController extends Controller
         if($usr->type != 'admin')
         {
             $user_projects = $usr->projects()->pluck('project_id')->toArray();
-            $user_projects = (!empty($project_id) && $project_id > 0) ? [$project_id] : $user_projects;
+            if(!empty($project_id) && $project_id > 0)
+            {
+                $user_projects = in_array($project_id, $user_projects) ? [$project_id] : [];
+            }
 
             $tasks = ProjectTask::whereIn('project_id', $user_projects);
             if($task_by == 'my')
@@ -750,6 +869,10 @@ class ProjectTaskController extends Controller
     public function calendarShow($id)
     {
         $task = ProjectTask::find($id);
+        if(!$task || !Auth::user()->isProjectMember($task->project_id))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
 
         return view('tasks.calendar_show', compact('task'));
     }
@@ -757,9 +880,45 @@ class ProjectTaskController extends Controller
     // Calendar Drag
     public function calendarDrag(Request $request, $id)
     {
-        $task             = ProjectTask::find($id);
+        $task = ProjectTask::find($id);
+        if(!$task || !Auth::user()->isProjectMember($task->project_id))
+        {
+            return response()->json(['error' => __('Permission Denied.')], 403);
+        }
+
+        $request->validate(
+            [
+                'start' => 'required|date',
+                'end' => 'required|date',
+            ]
+        );
+
         $task->start_date = $request->start;
         $task->end_date   = $request->end;
         $task->save();
+    }
+
+    protected function taskForActor($projectId, $taskId, $permission)
+    {
+        $user = Auth::user();
+        if(!$user || !$user->hasProjectPermission($projectId, $permission))
+        {
+            return null;
+        }
+
+        return ProjectTask::where('id', '=', $taskId)->where('project_id', '=', $projectId)->first();
+    }
+
+    protected function checklistForActor($projectId, $checklistId)
+    {
+        $checkList = TaskChecklist::find($checklistId);
+        if(!$checkList)
+        {
+            return null;
+        }
+
+        $task = $this->taskForActor($projectId, $checkList->task_id, 'show task');
+
+        return $task ? $checkList : null;
     }
 }

@@ -25,44 +25,44 @@ class ActivityLog extends Model
 
         if($remark)
         {
-            $user_name = $this->user ? $this->user->name : '';
+            $user_name = e($this->user ? $this->user->name : '');
 
             if($this->log_type == 'Invite User')
             {
-                return $user_name . ' ' . __('has invited') . ' <b>' . $remark['title'] . '</b>';
+                return $user_name . ' ' . __('has invited') . ' <b>' . e($remark['title']) . '</b>';
             }
             elseif($this->log_type == 'User Assigned to the Task')
             {
-                return $user_name . ' ' . __('has assigned task ') . ' <b>' . $remark['task_name'] . '</b>' . __(' to') . ' <b>' . $remark['member_name'] . '</b>';
+                return $user_name . ' ' . __('has assigned task ') . ' <b>' . e($remark['task_name']) . '</b>' . __(' to') . ' <b>' . e($remark['member_name']) . '</b>';
             }
             elseif($this->log_type == 'User Removed from the Task')
             {
-                return $user_name . ' ' . __('has removed ') . ' <b>' . $remark['member_name'] . '</b>' . __(' from task') . ' <b>' . $remark['task_name'] . '</b>';
+                return $user_name . ' ' . __('has removed ') . ' <b>' . e($remark['member_name']) . '</b>' . __(' from task') . ' <b>' . e($remark['task_name']) . '</b>';
             }
             elseif($this->log_type == 'Upload File')
             {
-                return $user_name . ' ' . __('Upload new file') . ' <b>' . $remark['file_name'] . '</b>';
+                return $user_name . ' ' . __('Upload new file') . ' <b>' . e($remark['file_name']) . '</b>';
             }
             elseif($this->log_type == 'Create Milestone')
             {
-                return $user_name . ' ' . __('Create new milestone') . " <b>" . $remark['title'] . "</b>";
+                return $user_name . ' ' . __('Create new milestone') . " <b>" . e($remark['title']) . "</b>";
             }
             elseif($this->log_type == 'Create Task')
             {
-                return $user_name . ' ' . __('Create new Task') . " <b>" . $remark['title'] . "</b>";
+                return $user_name . ' ' . __('Create new Task') . " <b>" . e($remark['title']) . "</b>";
             }
             elseif($this->log_type == 'Move Task')
             {
-                return $user_name . ' ' . __('Moved the Task') . " <b>" . $remark['title'] . "</b> " . __('from') . " " . __(ucwords($remark['old_stage'])) . " " . __('to') . " " . __(ucwords($remark['new_stage']));
+                return $user_name . ' ' . __('Moved the Task') . " <b>" . e($remark['title']) . "</b> " . __('from') . " " . e(__(ucwords($remark['old_stage']))) . " " . __('to') . " " . e(__(ucwords($remark['new_stage'])));
             }
             elseif($this->log_type == 'Create Expense')
             {
-                return $user_name . ' ' . __('Create new Expense') . " <b>" . $remark['title'] . "</b>";
+                return $user_name . ' ' . __('Create new Expense') . " <b>" . e($remark['title']) . "</b>";
             }
         }
         else
         {
-            return $this->remark;
+            return e($this->remark);
         }
     }
 

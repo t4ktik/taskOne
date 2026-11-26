@@ -5,6 +5,7 @@
 /vendor
 .env
 .env.backup
+/storage/app/seeded-credentials.txt
 .phpunit.result.cache
 Homestead.json
 Homestead.yaml

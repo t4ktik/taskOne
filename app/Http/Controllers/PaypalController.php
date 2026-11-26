@@ -26,13 +26,13 @@ class PaypalController extends Controller
 {
     private $_api_context;
 
-    public function setApiContext()
+    public function setApiContext($invoiceCreatorId = null)
     {
         $paypal_conf = config('paypal');
 
-        if(isset($_REQUEST['from']) && $_REQUEST['from'] == 'invoice')
+        if($invoiceCreatorId)
         {
-            $details = Auth::user()->decodeDetails($_REQUEST['invoice_creator']);
+            $details = Auth::user()->decodeDetails($invoiceCreatorId);
 
             $paypal_conf['settings']['mode'] = $details['paypal_mode'];
             $paypal_conf['client_id']        = $details['paypal_client_id'];
@@ -55,6 +55,11 @@ class PaypalController extends Controller
     {
         $user    = Auth::user();
         $invoice = Invoice::find($invoice_id);
+        if(!$invoice || (int) $invoice->client_id !== (int) $user->id)
+        {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $details = $user->decodeDetails($invoice->created_by);
 
         if($details['enable_paypal'] == 'on')
@@ -82,7 +87,7 @@ class PaypalController extends Controller
                 }
                 else
                 {
-                    $this->setApiContext();
+                    $this->setApiContext($invoice->created_by);
 
                     $name = $user->name . " - " . Utility::invoiceNumberFormat($invoice->invoice_id);
 
@@ -158,9 +163,9 @@ class PaypalController extends Controller
         $user    = Auth::user();
         $invoice = Invoice::find($invoice_id);
 
-        if($invoice)
+        if($invoice && (int) $invoice->client_id === (int) $user->id)
         {
-            $this->setApiContext();
+            $this->setApiContext($invoice->created_by);
 
             $payment_id = Session::get('paypal_payment_id');
 

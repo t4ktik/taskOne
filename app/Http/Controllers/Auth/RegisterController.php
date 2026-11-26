@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Providers\RouteServiceProvider;
 use App\User;
 use Illuminate\Foundation\Auth\RegistersUsers;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 
@@ -40,10 +41,10 @@ class RegisterController extends Controller
     {
         if(!file_exists(storage_path() . "/installed"))
         {
-            header('location:install');
-            die;
+            throw new HttpResponseException(redirect('install'));
         }
         $this->middleware('guest');
+        $this->middleware('throttle:5,1')->only('register');
     }
 
     /**
@@ -88,14 +89,17 @@ class RegisterController extends Controller
      */
     protected function create(array $data)
     {
-        return User::create(
+        $user = User::create(
             [
                 'name' => $data['name'],
                 'email' => $data['email'],
                 'password' => Hash::make($data['password']),
-                'type' => 'Owner',
-                'created_by' => 1,
             ]
         );
+        $user->type       = 'Owner';
+        $user->created_by = 1;
+        $user->save();
+
+        return $user;
     }
 }

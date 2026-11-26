@@ -85,14 +85,31 @@ class ExpenseController extends Controller
             return redirect()->back()->with('error', $validator->errors()->first());
         }
 
-        $post               = $request->all();
-        $post['project_id'] = $project_id;
-        $post['date']       = (!empty($request->date)) ? $request->date : null;
-        $post['created_by'] = $usr->id;
+        if(!$usr->hasProjectPermission($project_id, 'create expense'))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
+        if($request->task_id && !\App\ProjectTask::where('id', '=', $request->task_id)->where('project_id', '=', $project_id)->exists())
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
+        $post = [
+            'name' => $request->name,
+            'date' => (!empty($request->date)) ? $request->date : null,
+            'description' => $request->description,
+            'amount' => $request->amount,
+            'project_id' => $project_id,
+            'task_id' => $request->task_id,
+            'created_by' => $usr->id,
+        ];
 
         if($request->hasFile('attachment'))
         {
-            $fileNameToStore    = time() . '.' . $request->attachment->getClientOriginalExtension();
+            $request->validate(['attachment' => 'mimes:jpeg,jpg,png,pdf,doc,docx,zip|max:20480']);
+            $extension          = strtolower($request->attachment->guessExtension() ?: 'bin');
+            $fileNameToStore    = time() . '.' . preg_replace('/[^a-z0-9]/', '', $extension);
             $path               = $request->file('attachment')->storeAs('expense', $fileNameToStore);
             $post['attachment'] = $path;
         }
@@ -133,8 +150,13 @@ class ExpenseController extends Controller
      */
     public function edit($project_id, $expense_id)
     {
+        $expense = $this->expenseForActor($project_id, $expense_id);
+        if(!$expense)
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         $project = Project::find($project_id);
-        $expense = Expense::find($expense_id);
 
         return view('expenses.edit', compact('project', 'expense'));
     }
@@ -161,19 +183,34 @@ class ExpenseController extends Controller
             return redirect()->back()->with('error', $validator->errors()->first());
         }
 
-        $post    = $request->all();
-        $expense = Expense::find($expense_id);
+        $expense = $this->expenseForActor($project_id, $expense_id);
+        if(!$expense)
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
+        if($request->task_id && !\App\ProjectTask::where('id', '=', $request->task_id)->where('project_id', '=', $project_id)->exists())
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
+        $expense->name        = $request->name;
+        $expense->date        = (!empty($request->date)) ? $request->date : null;
+        $expense->description = $request->description;
+        $expense->amount      = $request->amount;
+        $expense->task_id     = $request->task_id;
 
         if($request->hasFile('attachment'))
         {
+            $request->validate(['attachment' => 'mimes:jpeg,jpg,png,pdf,doc,docx,zip|max:20480']);
             Utility::checkFileExistsnDelete([$expense->attachment]);
 
-            $fileNameToStore    = time() . '.' . $request->attachment->getClientOriginalExtension();
-            $path               = $request->file('attachment')->storeAs('expense', $fileNameToStore);
-            $post['attachment'] = $path;
+            $extension       = strtolower($request->attachment->guessExtension() ?: 'bin');
+            $fileNameToStore = time() . '.' . preg_replace('/[^a-z0-9]/', '', $extension);
+            $expense->attachment = $request->file('attachment')->storeAs('expense', $fileNameToStore);
         }
 
-        $expense->update($post);
+        $expense->save();
 
         return redirect()->back()->with('success', __('Expense Updated successfully.'));
     }
@@ -188,10 +225,25 @@ class ExpenseController extends Controller
     public function destroy($expense_id)
     {
         $expense = Expense::find($expense_id);
+        if(!$expense || !Auth::user()->hasProjectPermission($expense->project_id, 'show expense'))
+        {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         Utility::checkFileExistsnDelete([$expense->attachment]);
         $expense->delete();
 
         return redirect()->back()->with('success', __('Expense Deleted successfully.'));
+    }
+
+    protected function expenseForActor($projectId, $expenseId)
+    {
+        if(!Auth::user()->hasProjectPermission($projectId, 'show expense'))
+        {
+            return null;
+        }
+
+        return Expense::where('id', '=', $expenseId)->where('project_id', '=', $projectId)->first();
     }
 
     // Expense List
