@@ -16,9 +16,10 @@
         <link rel="stylesheet" href="{{ asset('assets/css/site-dark.css') }}">
     @endif
     <link rel="stylesheet" href="{{ asset('assets/css/custom.css') }}">
+    <link rel="stylesheet" href="{{ asset('assets/css/task-ui.css') }}">
     @stack('css')
 </head>
-<body class="application application-offset">
+<body class="application application-offset mode-{{ Auth::user()->mode == 'dark' ? 'dark' : 'light' }}">
 <div class="container-fluid container-application">
     <div class="sidenav pb-2" id="sidenav-main">
         @include('partials.admin.sidebar')
@@ -158,6 +159,11 @@
 <script src="{{ asset('assets/js/custom.js') }}"></script>
 
 @stack('script')
+
+@if(Auth::user()->type != 'admin')
+    <script src="{{ asset('assets/js/colorPick.js') }}"></script>
+    @include('tasks.partials.panel-scripts')
+@endif
 
 @if(Session::has('success'))
     <script>

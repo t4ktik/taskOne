@@ -202,40 +202,60 @@
                     <div class="card-header border-0">
                         <h6 class="mb-0">{{__('Top Due Tasks')}}</h6>
                     </div>
-                    <div class="table-responsive">
+                    <div class="table-responsive task-ui">
                         <table class="table align-items-center">
                             <thead>
                             <tr>
-                                <th scope="col" class="sort" data-sort="name">{{__('Tasks')}}</th>
-                                <th scope="col" class="sort" data-sort="budget">{{__('Project')}}</th>
-                                <th scope="col" class="sort" data-sort="status">{{__('Stage')}}</th>
-                                <th scope="col" class="sort" data-sort="completion">{{__('Completion')}}</th>
+                                <th scope="col">{{__('Tasks')}}</th>
+                                <th scope="col">{{__('Project')}}</th>
+                                <th scope="col">{{__('Stage')}}</th>
+                                <th scope="col">{{__('Due')}}</th>
+                                <th scope="col">{{__('Completion')}}</th>
                             </tr>
                             </thead>
                             <tbody class="list">
-                            @foreach($home_data['due_tasks'] as $due_task)
-                                <tr>
+                            @forelse($home_data['due_tasks'] as $due_task)
+                                @php
+                                    $dueLabel = \App\Utility::getDateFormated($due_task->end_date);
+                                    $overdue = $dueLabel !== '' && strtotime($due_task->end_date) < strtotime(date('Y-m-d')) && !$due_task->is_complete;
+                                @endphp
+                                <tr class="task-row">
                                     <th scope="row">
-                                        <div class="media align-items-center">
-                                            <div class="media-body ml-4">
-                                                <a href="{{ route('projects.tasks.index',$due_task->project->id) }}" class="name mb-0 h6 text-sm">{{ $due_task->name }}</a>
-                                            </div>
+                                        <div class="d-flex flex-column align-items-start">
+                                            <span class="task-issue-card__key">T-{{ $due_task->id }}</span>
+                                            <button type="button" class="task-row__summary task-issue-card__title" data-ajax-popup-right="true" data-url="{{ route('projects.tasks.show', [$due_task->project_id, $due_task->id]) }}">{{ $due_task->name }}</button>
+                                            @include('tasks.partials.priority', ['priorityKey' => $due_task->priority])
                                         </div>
                                     </th>
-                                    <td class="budget">{{$due_task->project->name}}</td>
+                                    <td>{{ $due_task->project->name }}</td>
                                     <td>
-                                    <span class="badge badge-dot mr-4">
-                                        <i class="bg-{{ \App\ProjectTask::$priority_color[$due_task->priority] }}"></i>
-                                        <span class="status">{{ \App\ProjectTask::$priority[$due_task->priority] }}</span>
-                                    </span>
+                                        @if(optional($due_task->stage)->name)
+                                            <span class="task-status"><span class="task-status__dot" aria-hidden="true"></span>{{ $due_task->stage->name }}</span>
+                                        @else
+                                            {{ __('-') }}
+                                        @endif
                                     </td>
                                     <td>
-                                        <div class="d-flex align-items-center">
-                                            <span class="completion mr-2">{{ $due_task->taskProgress()['percentage'] }}</span>
-                                        </div>
+                                        @if($dueLabel !== '')
+                                            <span class="task-due {{ $overdue ? 'is-overdue' : '' }}">{{ $dueLabel }}</span>
+                                        @else
+                                            {{ __('-') }}
+                                        @endif
+                                    </td>
+                                    <td>
+                                        <span class="completion">{{ $due_task->taskProgress()['percentage'] }}</span>
                                     </td>
                                 </tr>
-                            @endforeach
+                            @empty
+                                <tr>
+                                    <td colspan="5">
+                                        @include('tasks.partials.empty-state', [
+                                            'icon' => 'fa-check-circle',
+                                            'title' => __('No due tasks'),
+                                        ])
+                                    </td>
+                                </tr>
+                            @endforelse
                             </tbody>
                         </table>
                     </div>
