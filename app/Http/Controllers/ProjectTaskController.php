@@ -583,110 +583,11 @@ class ProjectTaskController extends Controller
         }
 
         $permissions = Auth::user()->getPermission($task->project_id);
+        $project     = Project::find($task->project_id);
+        $stages      = $project ? $project->taskstages()->orderBy('order')->get() : collect();
+        $html        = view('tasks.partials.issue-card-body', compact('task', 'permissions', 'stages'))->render();
 
-        $html = '';
-        $html .= '<div class="card-body"><div class="row align-items-center mb-2">';
-        $html .= '<div class="col-6">';
-        $html .= '<span class="badge badge-pill badge-xs badge-' . ProjectTask::$priority_color[$task->priority] . '">' . ProjectTask::$priority[$task->priority] . '</span>';
-        $html .= '</div>';
-        $html .= '<div class="col-6 text-right">';
-        if(str_replace('%', '', $task->taskProgress()['percentage']) > 0)
-        {
-            $html .= '<span class="text-sm">' . $task->taskProgress()['percentage'] . '</span>';
-        }
-        if(isset($permissions) && (in_array('show task', $permissions) || in_array('edit task', $permissions) || in_array('delete task', $permissions)))
-        {
-            $html .= '<div class="dropdown action-item">
-                                                        <a href="#" class="action-item" data-toggle="dropdown"><i class="fas fa-ellipsis-h"></i></a>
-                                                        <div class="dropdown-menu dropdown-menu-right">';
-            if(isset($permissions) && in_array('show task', $permissions))
-            {
-                $html .= '<a href="#" data-url="' . route(
-                        'projects.tasks.show', [
-                                                 $task->project_id,
-                                                 $task->id,
-                                             ]
-                    ) . '" data-ajax-popup-right="true" class="dropdown-item">' . __('View') . '</a>';
-            }
-            if(isset($permissions) && in_array('edit task', $permissions))
-            {
-                $html .= '<a href="#" data-url="' . route(
-                        "projects.tasks.edit", [
-                                                 $task->project_id,
-                                                 $task->id,
-                                             ]
-                    ) . '" data-ajax-popup="true" data-size="lg" data-title="' . e(__("Edit ") . $task->name) . '" class="dropdown-item">' . __('Edit') . '</a>';
-            }
-            if(isset($permissions) && in_array('delete task', $permissions))
-            {
-                $html .= '<a href="#" class="dropdown-item del_task" data-url="' . route(
-                        'projects.tasks.destroy', [
-                                                    $task->project_id,
-                                                    $task->id,
-                                                ]
-                    ) . '">' . __('Delete') . '</a>';
-            }
-            $html .= '                                 </div>
-                                                    </div>
-                                                </div>';
-            $html .= '</div>';
-        }
-        $html .= '<a class="h6" href="#" data-url="' . route(
-                "projects.tasks.show", [
-                                         $task->project_id,
-                                         $task->id,
-                                     ]
-            ) . '" data-ajax-popup-right="true">' . e($task->name) . '</a>';
-        $html .= '<div class="row align-items-center">';
-        $html .= '<div class="col-12">';
-        $html .= '<div class="actions d-inline-block">';
-        if(count($task->taskFiles) > 0)
-        {
-            $html .= '<div class="action-item mr-2"><i class="fas fa-paperclip mr-2"></i>' . count($task->taskFiles) . '</div>';
-        }
-        if(count($task->comments) > 0)
-        {
-            $html .= '<div class="action-item mr-2"><i class="fas fa-comment-alt mr-2"></i>' . count($task->comments) . '</div>';
-        }
-        if($task->checklist->count() > 0)
-        {
-            $html .= '<div class="action-item mr-2"><i class="fas fa-tasks mr-2"></i>' . $task->countTaskChecklist() . '</div>';
-        }
-        $html .= '</div>';
-        $html .= '</div>';
-        $html .= '<div class="col-5">';
-        if(!empty($task->end_date) && $task->end_date != '0000-00-00')
-        {
-            $clr  = (strtotime($task->end_date) < time()) ? 'text-danger' : '';
-            $html .= '<small class="' . $clr . '">' . date("d M Y", strtotime($task->end_date)) . '</small>';
-        }
-        $html .= '</div>';
-        $html .= '<div class="col-7 text-right">';
-
-        if($users = $task->users())
-        {
-            $html .= '<div class="avatar-group">';
-            foreach($users as $key => $user)
-            {
-                if($key < 3)
-                {
-                    $html .= ' <a href="#" class="avatar rounded-circle avatar-sm">';
-                    $html .= '<img ' . $user->img_avatar . ' title="' . e($user->name) . '">';
-                    $html .= '</a>';
-                }
-            }
-
-            if(count($users) > 3)
-            {
-                $html .= '<a href="#" class="avatar rounded-circle avatar-sm"><img avatar="';
-                $html .= count($users) - 3;
-                $html .= '"></a>';
-            }
-            $html .= '</div>';
-        }
-        $html .= '</div></div></div>';
-
-        print_r($html);
+        return response($html);
     }
 
     // For Priority Color
